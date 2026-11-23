@@ -40,6 +40,9 @@ export type CommunityPresentation = {
   trailersMode?: MediaMergeMode;
   website?: string;
 };
+export type ClientRequirement = { buildLabel?: string; sha256?: string };
+export type ClientInstallation = { id: string; label: string; executable: string };
+export type ClientVerification = { executable: string; actualSha256: string; expectedSha256?: string; matched?: boolean; buildLabel?: string };
 export type LaunchProfile = {
   id: string;
   name: string;
@@ -49,6 +52,8 @@ export type LaunchProfile = {
   community?: string;
   host?: string;
   adapter?: string;
+  clientRequirement?: ClientRequirement;
+  clientInstallationId?: string;
   presentation?: CommunityPresentation;
 };
 export type Game = {
@@ -60,6 +65,7 @@ export type Game = {
   description?: string;
   steamMetadata?: SteamMetadata;
   profiles: LaunchProfile[];
+  clientInstallations?: ClientInstallation[];
   activeProfileId: string;
   addedAt: string;
 };
@@ -70,5 +76,6 @@ export type ImportedProfile = {
   game?: { steamAppId?: number; name?: string };
   launch?: { adapter?: string; executable?: string; args?: string[]; workingDirectory?: string };
   connection?: { host?: string; port?: number };
+  client?: ClientRequirement;
   presentation?: CommunityPresentation;
 };

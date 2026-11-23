@@ -8,6 +8,7 @@ import {
 import type { Game, LaunchProfile, Library as LibraryData } from './types';
 import { parseImportedProfile, resolvePresentation } from './profilePresentation';
 import StorePanel from './StorePanel';
+import ClientManager from './ClientManager';
 import { fetchSteamMetadata, inDesktop, launchGame, readLibrary, writeLibrary } from './bridge';
 
 const uid = () => crypto.randomUUID();
@@ -144,11 +145,11 @@ function App() {
         adapter: manifest.launch?.adapter || 'standard',
         executable: manifest.launch?.executable, args: manifest.launch?.args || [],
         workingDirectory: manifest.launch?.workingDirectory, host: manifest.connection?.host,
-        presentation: manifest.presentation
+        presentation: manifest.presentation, clientRequirement: manifest.client
       };
       if (active.profiles.some(existing => existing.id === p.id)) throw Error('Profile already installed.');
       updateGame(active.id, g => ({ ...g, profiles: [...g.profiles, p], activeProfileId: p.id }));
-      setStatus('Installed ' + p.name + '. Profiles are data-only; custom adapters are not supported yet.');
+      setStatus('Installed '+p.name+'. Select a compatible game client under Community Profiles. Custom adapters are not supported yet.');
     } catch (err) { setStatus('Profile import failed: ' + String(err)); }
   };
 
@@ -228,6 +229,7 @@ function App() {
       {settingsTab==='general'?<div className="modal-copy"><p>Drift v0.1.0 · Development</p><p>Games live on. Drift organizes local games and will support community-maintained multiplayer integrations.</p><p>Custom native adapters and automatic Steam installation detection are not yet implemented.</p></div>:active && settingsTab==='profiles'?
       <div className="profiles-content"><p className="muted">Profiles are kept per game. Community-specific adapters are not yet available in this build.</p><label>Active profile<select value={active.activeProfileId} onChange={e=>updateGame(active.id,g=>({...g,activeProfileId:e.target.value}))}>{active.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
         <div className="profile-card"><strong>{profile?.name}</strong><span>Publisher: {profile?.community || 'Local'}</span><span>Adapter: {profile?.adapter || 'standard'}</span>{profile?.host && <span>Host: {profile.host}</span>}{profile?.presentation && <span>Custom game page: {profile.presentation.description ? 'Description' : 'Steam description'} · {profile.presentation.trailers?.length||0} videos · {profile.presentation.screenshots?.length||0} screenshots</span>}{profile?.adapter && profile.adapter!=='standard' && <p className="security-note"><ShieldAlert size={15}/> This adapter is not installed or supported. Drift will refuse to run this profile.</p>}</div>
+        {profile && <ClientManager game={active} profile={profile} updateGame={change => updateGame(active.id,change)}/>}
         <input type="file" accept=".gprofile,.json" hidden ref={importInput} onChange={e => {void importProfile(e.target.files?.[0]);e.currentTarget.value='';}}/>
         <div className="settings-actions"><button className="subtle-btn" onClick={()=>importInput.current?.click()}><Upload size={15}/> Import Profile</button>
         {profile && profile.name!=='Default' && <button className="subtle-btn" onClick={() => updateGame(active.id,g=>({ ...g, profiles:g.profiles.filter(p=>p.id!==profile.id), activeProfileId:g.profiles.find(p=>p.name==='Default')?.id||g.profiles[0].id }))}><Trash2 size={15}/> Remove Profile</button>}</div>

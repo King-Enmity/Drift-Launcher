@@ -83,6 +83,17 @@ export function parseImportedProfile(raw: string): ImportedProfile {
   const args = launch?.args;
   if (args !== undefined && (!Array.isArray(args) || args.length > 64 ||
     args.some(a => typeof a !== 'string' || a.length > 1024))) throw Error('Invalid launch arguments.');
+  const clientRaw = input.client;
+  let client: ImportedProfile['client'];
+  if (clientRaw !== undefined) {
+    if (!clientRaw || typeof clientRaw !== 'object' || Array.isArray(clientRaw)) throw Error('Invalid client requirements.');
+    const requirement = clientRaw as Record<string, unknown>;
+    const buildLabel = text(requirement.buildLabel, 'Client build label', 120);
+    const rawHash = text(requirement.sha256, 'Client SHA-256', 64);
+    if (rawHash !== undefined && !/^[a-fA-F0-9]{64}$/.test(rawHash))
+      throw Error('Client SHA-256 must have 64 hexadecimal characters.');
+    client = { buildLabel, sha256: rawHash?.toLowerCase() };
+  }
   const connection = input.connection as ImportedProfile['connection'] | undefined;
   if (connection !== undefined && (!connection || typeof connection !== 'object' || Array.isArray(connection))) throw Error('Invalid connection.');
   return {
@@ -96,6 +107,7 @@ export function parseImportedProfile(raw: string): ImportedProfile {
       args,
     } : undefined,
     connection: connection ? { host: text(connection.host, 'Host', 255), port: connection.port } : undefined,
+    client,
     presentation: validatePresentation(input.presentation),
   };
 }

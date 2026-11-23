@@ -239,3 +239,20 @@ h1,h2,h3,h4,p{margin:0}
 .trailer-player .store-video-error{z-index:2}
 .trailer-player .store-video-error a{display:block;color:#9de8dc;margin-top:7px}
 @media(max-width:920px){.play-mode-button{min-width:125px;max-width:180px}.play-strip{gap:12px}}
+
+
+/* Per-profile client build management, within Community Profiles settings. */
+.client-manager{margin-top:4px;border-top:1px solid #3a5563;padding-top:17px;display:grid;gap:12px}
+.client-manager .client-section-title{font-size:11px;color:#a9cdd4;letter-spacing:.09em;font-weight:800;margin-top:6px}
+.client-manager .client-build-row{display:flex;justify-content:space-between;gap:12px;padding:11px;background:#263c4b;font-size:12px}
+.client-build-row span{color:#92acb8}
+.client-requirement,.client-advisory{display:flex;gap:9px;align-items:flex-start;color:#b3d7c8;font-size:11px;line-height:1.5;background:#24423f;padding:11px}
+.client-advisory{color:#e2c79a;background:#403a2e}
+.client-path{font-family:monospace;word-break:break-all;color:#a7bbca;font-size:11px;background:#14232d;padding:10px}
+.client-actions{display:flex;gap:10px;flex-wrap:wrap}
+.client-result{display:grid;gap:7px;padding:13px;font-size:11px;color:#afd7c9;background:#244139;border-left:3px solid #6bbd95}
+.client-result code{word-break:break-all}
+.client-invalid{color:#f3b5b2;background:#422d32;padding:11px;font-size:11px;border-left:3px solid #d67474}
+.client-footnote{font-size:11px}
+.client-add{justify-self:start}
+.settings-dialog:has(.client-manager){width:min(690px,100%)}

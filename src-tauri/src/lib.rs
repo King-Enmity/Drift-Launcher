@@ -1,7 +1,23 @@
 mod steam;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf, process::Command};
+use std::{fs, fs::File, io::Read, path::{Path, PathBuf}, process::Command};
+use sha2::{Digest, Sha256};
 use tauri::Manager;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClientRequirement {
+    build_label: Option<String>,
+    sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClientInstallation {
+    id: String,
+    label: String,
+    executable: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -14,6 +30,10 @@ struct LaunchProfile {
     community: Option<String>,
     host: Option<String>,
     adapter: Option<String>,
+    #[serde(default)]
+    client_requirement: Option<ClientRequirement>,
+    #[serde(default)]
+    client_installation_id: Option<String>,
     #[serde(default)]
     presentation: Option<serde_json::Value>,
 }
@@ -30,6 +50,8 @@ struct Game {
     #[serde(default)]
     steam_metadata: Option<steam::SteamMetadata>,
     profiles: Vec<LaunchProfile>,
+    #[serde(default)]
+    client_installations: Vec<ClientInstallation>,
     active_profile_id: String,
     added_at: String,
 }
@@ -75,22 +97,88 @@ fn save_library(app: tauri::AppHandle, library: Library) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-fn launch_game(app: tauri::AppHandle, game: Game) -> Result<(), String> {
-    // Resolve against persisted state: never trust a caller-supplied path alone.
-    let saved = load_library(app)?.games.into_iter()
-        .find(|item| item.id == game.id)
-        .ok_or("Game not found in the local library")?;
-    let profile = saved.profiles.iter()
-        .find(|p| p.id == saved.active_profile_id)
-        .ok_or("Active profile was not found")?;
+fn selected_executable(game: &Game, profile: &LaunchProfile) -> Result<PathBuf, String> {
+    if let Some(id) = profile.client_installation_id.as_deref() {
+        // Fail closed if the selected client was removed. Never silently launch a
+        // different build when a profile is bound to an explicit local install.
+        return game.client_installations.iter().find(|client| client.id == id)
+            .map(|client| PathBuf::from(&client.executable))
+            .ok_or("This profile's selected client installation is missing. Reassign it under Community Profiles.".into());
+    }
+    Ok(PathBuf::from(profile.executable.as_deref().unwrap_or(&game.executable)))
+}
 
+fn sha256_file(path: &Path) -> Result<String, String> {
+    let mut input = File::open(path).map_err(|e| format!("Unable to inspect client executable: {e}"))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 128 * 1024];
+    loop {
+        let amount = input.read(&mut buffer).map_err(|e| format!("Unable to read client executable: {e}"))?;
+        if amount == 0 { break; }
+        hasher.update(&buffer[..amount]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClientVerification {
+    executable: String,
+    actual_sha256: String,
+    expected_sha256: Option<String>,
+    matched: Option<bool>,
+    build_label: Option<String>,
+}
+
+#[tauri::command]
+async fn verify_profile_client(app: tauri::AppHandle, game_id: String, profile_id: String)
+    -> Result<ClientVerification, String> {
+    let library = load_library(app)?;
+    let game = library.games.iter().find(|g| g.id == game_id)
+        .ok_or("Game not found in your Drift library.")?;
+    let profile = game.profiles.iter().find(|p| p.id == profile_id)
+        .ok_or("Profile not found.")?;
+    let path = selected_executable(game, profile)?;
+    if !path.is_file() { return Err("The selected client executable was not found.".into()); }
+    let expected = profile.client_requirement.as_ref().and_then(|r| r.sha256.as_deref())
+        .map(|s| s.to_lowercase());
+    let build_label = profile.client_requirement.as_ref().and_then(|r| r.build_label.clone());
+    let hash_path = path.clone();
+    let actual = tauri::async_runtime::spawn_blocking(move || sha256_file(&hash_path))
+        .await.map_err(|e| format!("Client verification failed: {e}"))??;
+    let matched = expected.as_ref().map(|e| *e == actual);
+    Ok(ClientVerification {
+        executable: path.to_string_lossy().into_owned(), actual_sha256: actual,
+        expected_sha256: expected, matched, build_label,
+    })
+}
+
+#[tauri::command]
+async fn launch_game(app: tauri::AppHandle, game: Game) -> Result<(), String> {
+    // Always load persisted state: UI input cannot bypass client requirements.
+    let saved = load_library(app)?.games.into_iter()
+        .find(|item| item.id == game.id).ok_or("Game not found in the local library")?;
+    let profile = saved.profiles.iter()
+        .find(|p| p.id == saved.active_profile_id).ok_or("Active profile was not found")?;
     if profile.adapter.as_deref().unwrap_or("standard") != "standard" {
         return Err("This game requires an adapter that Drift does not support yet.".into());
     }
-    let executable = profile.executable.as_deref().unwrap_or(&saved.executable);
-    let path = PathBuf::from(executable);
-    if !path.is_file() { return Err("Executable not found. Update the game's path.".into()); }
+    let path = selected_executable(&saved, profile)?;
+    if !path.is_file() { return Err("Client executable not found. Open Community Profiles and select the correct installation.".into()); }
+    if let Some(hash) = profile.client_requirement.as_ref().and_then(|r| r.sha256.as_deref()) {
+        if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("The selected profile has an invalid SHA-256 requirement.".into());
+        }
+        let path_for_hash = path.clone();
+        let actual = tauri::async_runtime::spawn_blocking(move || sha256_file(&path_for_hash))
+            .await.map_err(|e| format!("Client verification failed: {e}"))??;
+        if !actual.eq_ignore_ascii_case(hash) {
+            return Err(format!(
+                "Wrong game build for this community profile. Expected SHA-256 {}, found {}. Choose a compatible installation under Community Profiles.",
+                hash, actual
+            ));
+        }
+    }
     let mut command = Command::new(&path);
     command.args(&profile.args);
     if let Some(dir) = profile.working_directory.as_ref() {
@@ -105,7 +193,7 @@ fn launch_game(app: tauri::AppHandle, game: Game) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![load_library, save_library, launch_game, steam::fetch_steam_metadata])
+        .invoke_handler(tauri::generate_handler![load_library, save_library, launch_game, verify_profile_client, steam::fetch_steam_metadata])
         .run(tauri::generate_context!())
         .expect("error while running Drift");
 }
