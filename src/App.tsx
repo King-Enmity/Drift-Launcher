@@ -3,12 +3,13 @@ import { open } from '@tauri-apps/plugin-dialog';
 import {
   ChevronDown, CircleAlert, Download, ExternalLink, Film, FolderOpen, Gamepad2,
   Image as ImageIcon, Info, Library, MoreHorizontal, Play, Plus, RefreshCcw,
-  Search, Settings, ShieldAlert, SlidersHorizontal, Trash2, Upload, X
+  Search, Settings, ShieldAlert, SlidersHorizontal, Trash2, Upload, X, FolderSearch
 } from 'lucide-react';
 import type { Game, LaunchProfile, Library as LibraryData } from './types';
 import { parseImportedProfile, resolvePresentation } from './profilePresentation';
 import StorePanel from './StorePanel';
 import ClientManager from './ClientManager';
+import DiscoveryDialog, { type GameImportSelection } from './DiscoveryDialog';
 import { fetchSteamMetadata, inDesktop, launchGame, readLibrary, writeLibrary } from './bridge';
 
 const uid = () => crypto.randomUUID();
@@ -57,6 +58,7 @@ function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general'|'profiles'|'details'|null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [status, setStatus] = useState('');
@@ -126,6 +128,36 @@ function App() {
     if (game.steamAppId) void refresh(game.id, game.steamAppId);
   };
 
+  const importDiscoveredGames = (entries: GameImportSelection[]) => {
+    const existing = libRef.current.games;
+    const unique = entries.filter(({discovery}) => !existing.some(g =>
+      (g.source === discovery.source && g.sourceId === discovery.sourceId)
+      || (discovery.source === 'steam' && !!g.steamAppId && g.steamAppId === discovery.steamAppId)));
+    const imported: Game[] = unique.map(({discovery:g,matchedSteamAppId}) => {
+      const profile = baseProfile();
+      return {
+        id: uid(), title: g.title, executable: g.executable || '',
+        source: g.source, sourceId: g.sourceId, installDirectory: g.installDirectory,
+        steamAppId: g.steamAppId || matchedSteamAppId,
+        // A Steam metadata match must not change the Epic launch provider.
+        launchMethod: g.source === 'steam' ? 'steam' : 'direct',
+        profiles:[profile],activeProfileId:profile.id,addedAt:new Date().toISOString()
+      };
+    });
+    if (imported.length) {
+      void save({...libRef.current,games:[...existing,...imported]});
+      setSelected(imported[0].id);
+      // Spread requests to reduce accidental Steam Store rate-limiting.
+      imported.filter(g=>g.steamAppId).slice(0,5).forEach((g,i)=>{
+        window.setTimeout(()=>void refresh(g.id,g.steamAppId!,true),i*1200);
+      });
+      setStatus('Imported '+imported.length+' game(s). Metadata will be requested for up to five games; you can refresh the others individually.');
+    } else {
+      setStatus('These games are already in your Drift library.');
+    }
+    setDiscovering(false);
+  };
+
   const play = async () => {
     if (!active) return;
     setWorking(true);
@@ -173,12 +205,12 @@ function App() {
         <Artwork src={g.steamMetadata?.coverImage || g.artworkUrl || g.steamMetadata?.headerImage} className="list-art" />
         <span>{g.title}</span>
       </button>)}</div>
-      <button className="add-bottom" onClick={() => setAdding(true)}><Plus size={15}/> Add a Game</button>
+      <div className="discovery-sidebar-actions"><button className="add-bottom" onClick={() => setDiscovering(true)}><FolderSearch size={15}/> Find Installed Games</button><button className="add-bottom" onClick={() => setAdding(true)}><Plus size={15}/> Add Manually</button></div>
     </aside>
 
     <main className="game-main">
       {!ready ? <div className="blank-state">Loading your library…</div> : !active ?
-        <div className="blank-state"><Gamepad2 size={54}/><h1>Your worlds. Your games.</h1><p>Add a game to your Drift library to get started.</p><button className="blue-btn" onClick={() => setAdding(true)}><Plus size={17}/> Add Your First Game</button></div> :
+        <div className="blank-state"><Gamepad2 size={54}/><h1>Your worlds. Your games.</h1><p>Add a game to your Drift library to get started.</p><button className="blue-btn" onClick={() => setDiscovering(true)}><FolderSearch size={17}/> Find Installed Games</button><button className="subtle-btn" onClick={() => setAdding(true)}>Add game manually</button></div> :
         <div className="game-scroll" key={active.id}>
           <div className="hero" style={{ backgroundImage: validUrl(presentation?.heroImage) ? 'linear-gradient(90deg,rgba(8,16,25,.68),transparent 66%),url("' + presentation?.heroImage + '")' : undefined }}>
             <div className="hero-shade"/>
@@ -227,6 +259,11 @@ function App() {
 
     {status && <div className="toast" role="status">{status}<button onClick={() => setStatus('')} aria-label="Dismiss"><X size={15}/></button></div>}
     {adding && <AddGame onClose={() => setAdding(false)} onAdd={addGame}/>}
+    {discovering && <DiscoveryDialog
+      existingKeys={games.flatMap(g=>[g.source&&g.sourceId?g.source+':'+(g.source==='epic'?g.sourceId.split(':').pop():g.sourceId):'',g.steamAppId?'steam:'+g.steamAppId:'']).filter(Boolean) as string[]}
+      onClose={()=>setDiscovering(false)}
+      onImport={importDiscoveredGames}
+    />}
     {media && <div className="media-backdrop" onMouseDown={() => setMedia(null)}><div className="media-dialog" onMouseDown={e=>e.stopPropagation()}><div className="media-header"><strong>{media.name}</strong><button onClick={() => setMedia(null)} className="icon-btn"><X size={20}/></button></div>{media.type === 'video' ? <video key={media.src} controls autoPlay playsInline src={media.src}/> : <img src={media.src} alt={media.name}/>}</div></div>}
     {settingsTab && <div className="modal-scrim" onMouseDown={() => setSettingsTab(null)}><section className="dialog settings-dialog" onMouseDown={e => e.stopPropagation()}>
       <div className="dialog-heading"><div><small className="eyebrow">DRIFT SETTINGS</small><h2>{settingsTab==='general'?'About Drift':settingsTab==='profiles'?'Community Profiles':'Game Properties'}</h2></div><button className="icon-btn" onClick={() => setSettingsTab(null)}><X size={20}/></button></div>

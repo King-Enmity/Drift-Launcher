@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Game, Library, SteamMetadata, ClientVerification, LaunchOutcome } from './types';
+import type { Game, Library, SteamMetadata, ClientVerification, LaunchOutcome, DiscoveredGame, SteamSearchResult } from './types';
 export const inDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 const PREVIEW_KEY = 'drift-preview-library';
 const empty: Library = { schemaVersion: 1, games: [] };
@@ -26,4 +26,13 @@ export async function fetchSteamMetadata(appId: number): Promise<SteamMetadata> 
 export async function verifyProfileClient(gameId: string, profileId: string): Promise<ClientVerification> {
   if (!inDesktop) throw Error('Client verification requires the Drift desktop app.');
   return invoke<ClientVerification>('verify_profile_client', { gameId, profileId });
+}
+
+export async function scanInstalledGames(): Promise<DiscoveredGame[]> {
+  if (!inDesktop) throw Error('Game scanning requires the Drift desktop app.');
+  return invoke<DiscoveredGame[]>('scan_installed_games');
+}
+export async function searchSteamGames(term: string): Promise<SteamSearchResult[]> {
+  if (!inDesktop) throw Error('Steam matching requires the Drift desktop app.');
+  return invoke<SteamSearchResult[]>('search_steam_games', { term });
 }

@@ -57,11 +57,24 @@ export type LaunchProfile = {
   presentation?: CommunityPresentation;
 };
 export type LaunchOutcome = { method: 'steam' | 'direct'; message: string };
+export type DiscoveredGame = {
+  id: string;
+  title: string;
+  source: 'steam' | 'epic';
+  sourceId: string;
+  steamAppId?: number;
+  executable?: string;
+  installDirectory: string;
+};
+export type SteamSearchResult = { appId: number; name: string; artworkUrl?: string };
 export type Game = {
   id: string;
   title: string;
   executable: string;
   steamAppId?: number;
+  source?: 'steam' | 'epic' | 'manual';
+  sourceId?: string;
+  installDirectory?: string;
   launchMethod?: 'steam' | 'direct';
   artworkUrl?: string;
   description?: string;

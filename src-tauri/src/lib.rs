@@ -1,3 +1,4 @@
+mod discovery;
 mod steam;
 use serde::{Deserialize, Serialize};
 use std::{fs, fs::File, io::Read, path::{Path, PathBuf}, process::Command};
@@ -45,6 +46,12 @@ struct Game {
     title: String,
     executable: String,
     steam_app_id: Option<u32>,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    source_id: Option<String>,
+    #[serde(default)]
+    install_directory: Option<String>,
     #[serde(default)]
     launch_method: Option<String>,
     artwork_url: Option<String>,
@@ -237,7 +244,7 @@ async fn launch_game(app: tauri::AppHandle, game: Game) -> Result<LaunchOutcome,
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![load_library, save_library, launch_game, verify_profile_client, steam::fetch_steam_metadata])
+        .invoke_handler(tauri::generate_handler![load_library, save_library, launch_game, verify_profile_client, steam::fetch_steam_metadata, steam::search_steam_games, discovery::scan_installed_games])
         .run(tauri::generate_context!())
         .expect("error while running Drift");
 }

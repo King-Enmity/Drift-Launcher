@@ -169,3 +169,38 @@ pub async fn fetch_steam_metadata(app_id: u32) -> Result<SteamMetadata, String> 
         trailers,
     })
 }
+
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteamSearchResult {
+    app_id: u32,
+    name: String,
+    artwork_url: Option<String>,
+}
+
+/// A suggestion list, not a definitive cross-store identity match.
+#[tauri::command]
+pub async fn search_steam_games(term: String) -> Result<Vec<SteamSearchResult>, String> {
+    let query = term.trim();
+    if query.len() < 2 || query.len() > 100 { return Err("Search must be between 2 and 100 characters.".into()); }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .user_agent("Drift-Launcher/0.1 (personal game library)")
+        .build().map_err(|e| e.to_string())?;
+    let response = client.get("https://store.steampowered.com/api/storesearch/")
+        .query(&[("term", query), ("l", "english"), ("cc", "us")])
+        .send().await.map_err(|e| format!("Steam search unavailable: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Steam search returned HTTP {}.",response.status()));
+    }
+    let data: Value = response.json().await.map_err(|e| e.to_string())?;
+    let results = data.get("items").and_then(Value::as_array)
+        .ok_or("Steam search did not return games.")?;
+    Ok(results.iter().filter_map(|item| {
+        let app_id = item.get("id")?.as_u64().and_then(|id| u32::try_from(id).ok())?;
+        let name = item.get("name")?.as_str()?.to_owned();
+        let artwork_url = item.get("tiny_image").and_then(Value::as_str).and_then(https_url);
+        Some(SteamSearchResult{app_id,name,artwork_url})
+    }).take(12).collect())
+}
