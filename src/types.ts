@@ -56,11 +56,13 @@ export type LaunchProfile = {
   clientInstallationId?: string;
   presentation?: CommunityPresentation;
 };
+export type LaunchOutcome = { method: 'steam' | 'direct'; message: string };
 export type Game = {
   id: string;
   title: string;
   executable: string;
   steamAppId?: number;
+  launchMethod?: 'steam' | 'direct';
   artworkUrl?: string;
   description?: string;
   steamMetadata?: SteamMetadata;

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Game, Library, SteamMetadata, ClientVerification } from './types';
+import type { Game, Library, SteamMetadata, ClientVerification, LaunchOutcome } from './types';
 export const inDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 const PREVIEW_KEY = 'drift-preview-library';
 const empty: Library = { schemaVersion: 1, games: [] };
@@ -13,9 +13,9 @@ export async function writeLibrary(library: Library): Promise<void> {
   if (inDesktop) return invoke('save_library', { library });
   localStorage.setItem(PREVIEW_KEY, JSON.stringify(library));
 }
-export async function launchGame(game: Game): Promise<void> {
+export async function launchGame(game: Game): Promise<LaunchOutcome> {
   if (!inDesktop) throw Error('Native game launching requires the Drift desktop app.');
-  return invoke('launch_game', { game });
+  return invoke<LaunchOutcome>('launch_game', { game });
 }
 export async function fetchSteamMetadata(appId: number): Promise<SteamMetadata> {
   if (!Number.isSafeInteger(appId) || appId <= 0) throw Error('Enter a valid Steam App ID.');

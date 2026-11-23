@@ -129,7 +129,7 @@ function App() {
   const play = async () => {
     if (!active) return;
     setWorking(true);
-    try { await launchGame(active); setStatus('Launched ' + active.title); }
+    try { const result = await launchGame(active); setStatus(result.message); }
     catch (err) { setStatus(String(err)); }
     finally { setWorking(false); }
   };
@@ -190,7 +190,11 @@ function App() {
           </div>
           <div className="play-strip">
             <button className="play-main" onClick={play} disabled={working}><Play size={19} fill="currentColor"/>{working ? 'LAUNCHING' : 'PLAY'}</button>
-            <div className="play-info"><small>INSTALLATION</small><strong>LOCAL GAME</strong></div>
+            <div className="play-info"><small>LAUNCH METHOD</small><strong>{
+              active.activeProfileId === active.profiles[0]?.id
+                ? ((active.launchMethod || (active.steamAppId ? 'steam' : 'direct')) === 'steam' ? 'STEAM' : 'DIRECT')
+                : 'COMMUNITY CLIENT'
+            }</strong></div>
             <button className="play-mode-button" onClick={() => setSettingsTab('profiles')} title="Switch game profile">
               <span><small>PLAY MODE</small><strong>{presentation?.community ? profile?.name : 'Default — Steam'}</strong></span>
               <ChevronDown size={15}/>
@@ -236,6 +240,15 @@ function App() {
       </div>:active && <div className="properties-content">
         <label>Game title<input value={active.title} onChange={e => updateGame(active.id,g=>({...g,title:e.target.value}))}/></label>
         <label>Executable path<input value={active.executable} onChange={e => updateGame(active.id,g=>({...g,executable:e.target.value}))}/></label>
+        <label>Default profile launch method
+          <select value={active.launchMethod || (active.steamAppId ? 'steam' : 'direct')} onChange={e=>updateGame(active.id,g=>({...g,launchMethod:e.target.value as 'steam'|'direct'}))}>
+            <option value="steam" disabled={!active.steamAppId}>Launch through Steam (recommended)</option>
+            <option value="direct">Launch executable directly</option>
+          </select>
+        </label>
+        <p className="muted">{(active.launchMethod || (active.steamAppId ? 'steam' : 'direct')) === 'steam'
+          ? 'The Default profile asks Steam to launch this game using its registered launch options. Separate community profiles keep their own client paths.'
+          : 'The Default profile launches the game executable directly. Some Steam games will not work with this method.'}</p>
         <label>Steam App ID<input type="number" min="1" value={active.steamAppId||''} onChange={e => updateGame(active.id,g=>({...g,steamAppId:e.target.value?Number(e.target.value):undefined,steamMetadata:undefined}))}/></label>
         <button className="subtle-btn" disabled={!active.steamAppId||loadingIds.includes(active.id)} onClick={()=>void refresh(active.id,active.steamAppId!)}><RefreshCcw size={16}/> Fetch Steam artwork & details</button>
         <label>Custom artwork URL (HTTPS)<input value={active.artworkUrl||''} onChange={e => updateGame(active.id,g=>({...g,artworkUrl:validUrl(e.target.value)}))}/></label>

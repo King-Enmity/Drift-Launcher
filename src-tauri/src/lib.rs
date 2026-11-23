@@ -45,6 +45,8 @@ struct Game {
     title: String,
     executable: String,
     steam_app_id: Option<u32>,
+    #[serde(default)]
+    launch_method: Option<String>,
     artwork_url: Option<String>,
     description: Option<String>,
     #[serde(default)]
@@ -153,8 +155,15 @@ async fn verify_profile_client(app: tauri::AppHandle, game_id: String, profile_i
     })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LaunchOutcome {
+    method: String,
+    message: String,
+}
+
 #[tauri::command]
-async fn launch_game(app: tauri::AppHandle, game: Game) -> Result<(), String> {
+async fn launch_game(app: tauri::AppHandle, game: Game) -> Result<LaunchOutcome, String> {
     // Always load persisted state: UI input cannot bypass client requirements.
     let saved = load_library(app)?.games.into_iter()
         .find(|item| item.id == game.id).ok_or("Game not found in the local library")?;
@@ -163,6 +172,38 @@ async fn launch_game(app: tauri::AppHandle, game: Game) -> Result<(), String> {
     if profile.adapter.as_deref().unwrap_or("standard") != "standard" {
         return Err("This game requires an adapter that Drift does not support yet.".into());
     }
+
+    // Steam-managed games usually need to run through Steam so Steamworks,
+    // launch options and any launch wrapper can initialize normally.
+    // Only the built-in Default profile may use this method: community profiles
+    // must continue to launch their explicitly selected client/adapter.
+    let is_default_profile = saved.profiles.first()
+        .map(|p| p.id == profile.id).unwrap_or(false);
+    let should_launch_steam = is_default_profile
+        && saved.steam_app_id.is_some()
+        && saved.launch_method.as_deref().unwrap_or("steam") == "steam";
+
+    if should_launch_steam {
+        if profile.client_installation_id.is_some()
+            || profile.executable.is_some()
+            || profile.client_requirement.is_some()
+            || !profile.args.is_empty()
+            || profile.working_directory.is_some()
+        {
+            return Err("The Default profile has custom client settings. Select Direct executable in Game Properties to use them, or reset its overrides before launching through Steam.".into());
+        }
+        let app_id = saved.steam_app_id.ok_or("No Steam App ID configured.")?;
+        if app_id == 0 { return Err("Steam App ID must be positive.".into()); }
+        // The Steam URI contains *only* an integer from local library data.
+        // No shell interpolation or community-supplied arguments are involved.
+        open::that(format!("steam://run/{app_id}"))
+            .map_err(|e| format!("Could not hand the launch request to Steam: {e}. Check that Steam is installed and that its URL handler is registered."))?;
+        return Ok(LaunchOutcome {
+            method: "steam".into(),
+            message: format!("Requested launch through Steam for {}. Steam will start its installed version.", saved.title),
+        });
+    }
+
     let path = selected_executable(&saved, profile)?;
     if !path.is_file() { return Err("Client executable not found. Open Community Profiles and select the correct installation.".into()); }
     if let Some(hash) = profile.client_requirement.as_ref().and_then(|r| r.sha256.as_deref()) {
@@ -186,7 +227,10 @@ async fn launch_game(app: tauri::AppHandle, game: Game) -> Result<(), String> {
         command.current_dir(dir);
     } else if let Some(parent) = path.parent() { command.current_dir(parent); }
     command.spawn().map_err(|e| format!("Could not launch {}: {e}", saved.title))?;
-    Ok(())
+    Ok(LaunchOutcome {
+        method: "direct".into(),
+        message: format!("Started {} directly.", saved.title),
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
