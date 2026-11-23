@@ -1,67 +1,258 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Activity, ArrowLeft, Check, ChevronDown, CircleHelp, CloudDownload, Compass, FileInput, FolderOpen, Gamepad2, HardDrive, LibraryBig, Menu, MoreHorizontal, Play, Plus, Search, Settings2, ShieldAlert, Sparkles, UploadCloud, X } from 'lucide-react';
-import type { Game, ImportedProfile, LaunchProfile, Library } from './types';
-import { inDesktop, launchGame, readLibrary, writeLibrary } from './bridge';
+import {
+  ChevronDown, CircleAlert, Download, ExternalLink, Film, FolderOpen, Gamepad2,
+  Image as ImageIcon, Info, Library, MoreHorizontal, Play, Plus, RefreshCcw,
+  Search, Settings, ShieldAlert, SlidersHorizontal, Trash2, Upload, X
+} from 'lucide-react';
+import type { Game, ImportedProfile, LaunchProfile, Library as LibraryData, SteamMetadata } from './types';
+import { fetchSteamMetadata, inDesktop, launchGame, readLibrary, writeLibrary } from './bridge';
 
-const uid=()=>crypto.randomUUID();
-const defaultProfile=():LaunchProfile=>({id:uid(),name:'Default',args:[],adapter:'standard'});
-const stamp=()=>new Date().toISOString();
-function safeImage(url?:string){if(!url)return undefined;try{const p=new URL(url);return p.protocol==='https:'?url:undefined}catch{return undefined}}
-function parseProfile(raw:string):ImportedProfile {
- if(raw.length>100_000)throw Error('Profile is too large (100 KB maximum).');
- let v:ImportedProfile;try{v=JSON.parse(raw)}catch{throw Error('Invalid JSON profile.')}
- if(v.schemaVersion!==1||!v.profile||typeof v.profile.name!=='string'||typeof v.profile.id!=='string')throw Error('Invalid Drift profile v1.');
- if(v.profile.id.length>120||v.profile.name.length>120||!v.profile.name.trim())throw Error('Invalid profile identifier or name.');
- if(v.launch?.args && (!Array.isArray(v.launch.args)||v.launch.args.length>64||v.launch.args.some(a=>typeof a!=='string'||a.length>1024)))throw Error('Invalid launch arguments.');
- if(v.launch?.adapter && typeof v.launch.adapter!=='string')throw Error('Invalid adapter.');
- if(v.launch?.executable && typeof v.launch.executable!=='string')throw Error('Invalid executable.');
- if(v.launch?.workingDirectory && typeof v.launch.workingDirectory!=='string')throw Error('Invalid working directory.');
- if(v.connection?.host && (typeof v.connection.host!=='string'||v.connection.host.length>255))throw Error('Invalid connection host.');
- return v;
+const uid = () => crypto.randomUUID();
+const initialLibrary: LibraryData = { schemaVersion: 1, games: [] };
+const validUrl = (url?: string) => {
+  if (!url) return undefined;
+  try { const parsed = new URL(url); return parsed.protocol === 'https:' ? url : undefined; }
+  catch { return undefined; }
+};
+const baseProfile = (): LaunchProfile => ({ id: uid(), name: 'Default', args: [], adapter: 'standard' });
+
+function ImportedManifest(raw: string): ImportedProfile {
+  if (raw.length > 100_000) throw Error('Profile file exceeds 100 KB.');
+  const data: ImportedProfile = JSON.parse(raw);
+  if (data.schemaVersion !== 1 || !data.profile || typeof data.profile.name !== 'string' || typeof data.profile.id !== 'string')
+    throw Error('This is not a valid Drift profile v1.');
+  if (!data.profile.name.trim() || data.profile.name.length > 120 || !data.profile.id.trim() || data.profile.id.length > 120)
+    throw Error('Invalid profile name or identifier.');
+  if (data.launch?.args && (!Array.isArray(data.launch.args) || data.launch.args.length > 64 ||
+      data.launch.args.some(a => typeof a !== 'string' || a.length > 1024))) throw Error('Invalid profile arguments.');
+  if (data.launch?.adapter && typeof data.launch.adapter !== 'string') throw Error('Invalid adapter identifier.');
+  if (data.launch?.executable && typeof data.launch.executable !== 'string') throw Error('Invalid executable.');
+  if (data.launch?.workingDirectory && typeof data.launch.workingDirectory !== 'string') throw Error('Invalid working directory.');
+  if (data.connection?.host && (typeof data.connection.host !== 'string' || data.connection.host.length > 255))
+    throw Error('Invalid host.');
+  return data;
 }
-function AddGame({ onCancel,onAdd }:{onCancel:()=>void;onAdd:(g:Game)=>void}) {
- const [title,setTitle]=useState(''),[exe,setExe]=useState(''),[appId,setAppId]=useState(''),[image,setImage]=useState('');
- const pick=async()=>{if(!inDesktop)return;const r=await open({multiple:false,directory:false,filters:[{name:'Programs',extensions:['exe','bat','cmd','app','sh']} ]});if(typeof r==='string')setExe(r)};
- return <div className="modal-backdrop" onMouseDown={onCancel}><section className="modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">YOUR LIBRARY</span><h2>Add a game</h2></div><button className="icon-button" onClick={onCancel} aria-label="Close"><X size={19}/></button></div><p className="muted">Add an installed game to your library. Drift won't download or modify its files.</p><form onSubmit={e=>{e.preventDefault();if(!title.trim()||!exe.trim())return;const profile=defaultProfile();onAdd({id:uid(),title:title.trim(),executable:exe.trim(),steamAppId:appId?Number(appId):undefined,artworkUrl:safeImage(image),profiles:[profile],activeProfileId:profile.id,addedAt:stamp()})}}>
- <label>Game title<input autoFocus required value={title} onChange={e=>setTitle(e.target.value)} placeholder="e.g. New World"/></label><label>Executable path<div className="input-pick"><input required value={exe} onChange={e=>setExe(e.target.value)} placeholder="C:\\Games\\Game\\Game.exe"/><button type="button" className="secondary-btn" onClick={pick}><FolderOpen size={17}/> Browse</button></div></label><label>Steam App ID <small>(optional)</small><input type="number" min="1" value={appId} onChange={e=>setAppId(e.target.value)} placeholder="1063730"/></label><label>Artwork URL <small>(optional, HTTPS)</small><input value={image} onChange={e=>setImage(e.target.value)} placeholder="https://..."/></label><div className="modal-actions"><button type="button" className="secondary-btn" onClick={onCancel}>Cancel</button><button type="submit" className="primary-btn"><Plus size={16}/> Add to library</button></div></form></section></div>;
+
+function Artwork({ src, alt = '', className = '' }: { src?: string; alt?: string; className?: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return <div className={'artwork ' + className}>
+    {src && !failed ? <img src={src} alt={alt} onError={() => setFailed(true)} /> :
+      <div className="art-fallback"><Gamepad2 size={32}/><span>DRIFT</span></div>}
+  </div>;
 }
-function App(){
- const [library,setLibrary]=useState<Library>({schemaVersion:1,games:[]});
- const [selected,setSelected]=useState<string|null>(null),[adding,setAdding]=useState(false),[search,setSearch]=useState(''),[status,setStatus]=useState(''),[busy,setBusy]=useState(false),[editing,setEditing]=useState(false),[showSettings,setShowSettings]=useState(false),[importing,setImporting]=useState(false);
- const [ready,setReady]=useState(false);
- useEffect(()=>{readLibrary().then(data=>{setLibrary(data);setSelected(data.games[0]?.id??null)}).catch(e=>setStatus(String(e))).finally(()=>setReady(true))},[]);
- const save=useCallback(async(next:Library)=>{try{await writeLibrary(next);setLibrary(next)}catch(e){setStatus('Unable to save library: '+String(e))}},[]);
- const games=library.games;
- const game=games.find(g=>g.id===selected);
- const profile=game?.profiles.find(p=>p.id===game.activeProfileId);
- const filtered=useMemo(()=>games.filter(g=>g.title.toLowerCase().includes(search.trim().toLowerCase())),[games,search]);
- const mutate=(g:Game)=>save({...library,games:games.map(item=>item.id===g.id?g:item)});
- const importProfile=async()=>{if(!game)return;try{setImporting(true);const selection=await open({multiple:false,filters:[{name:'Drift profile',extensions:['gprofile','json']} ]});if(!selection||typeof selection!=='string')return;
- // Native file read is intentionally not available to the webview; file import uses
- // a small browser file input instead, avoiding an overbroad filesystem capability.
- setStatus('Select the profile with the Import Profile button in the file picker below.');
- document.getElementById('profile-file')?.click();
- }catch(e){setStatus(String(e))}finally{setImporting(false)}};
- const onProfileFile=async(file?:File)=>{if(!file||!game)return;try{const parsed=parseProfile(await file.text());if(parsed.game?.steamAppId && game.steamAppId && parsed.game.steamAppId!==game.steamAppId)throw Error('Profile is for a different Steam game.');
- const entry:LaunchProfile={id:parsed.profile.id,name:parsed.profile.name,args:parsed.launch?.args??[],executable:parsed.launch?.executable,workingDirectory:parsed.launch?.workingDirectory,community:parsed.profile.publisher,host:parsed.connection?.host,adapter:parsed.launch?.adapter??'standard'};
- if(game.profiles.some(p=>p.id===entry.id))throw Error('This profile is already installed.');
- await mutate({...game,profiles:[...game.profiles,entry],activeProfileId:entry.id});setStatus('Imported profile: '+entry.name);
- }catch(e){setStatus(String(e))}};
- const play=async()=>{if(!game)return;try{setBusy(true);await launchGame(game);setStatus('Launched '+game.title+' with '+(profile?.name??'Default'))}catch(e){setStatus(String(e))}finally{setBusy(false)}};
- return <div className="shell">
- <aside className="sidebar"><div className="brand"><div className="brand-symbol">D<span>~</span></div><div><strong>DRIFT</strong><small>GAMES LIVE ON.</small></div></div><div className="nav-block"><div className="nav-caption">DISCOVER</div><button className="nav-item active"><LibraryBig size={19}/> Library <span className="nav-count">{games.length}</span></button><button className="nav-item" onClick={()=>setStatus('Community discovery is planned for a future release.')}><Compass size={19}/> Communities <span className="soon">SOON</span></button></div><div className="sidebar-library"><div className="side-section"><span>YOUR GAMES</span><button title="Add game" onClick={()=>setAdding(true)}><Plus size={18}/></button></div><div className="side-scroll">{games.length===0?<div className="sidebar-empty">No games yet</div>:games.map(g=><button className={'game-row '+(g.id===selected?'chosen':'')} key={g.id} onClick={()=>{setSelected(g.id);setEditing(false)}}><span className="game-row-image">{safeImage(g.artworkUrl)?<img src={g.artworkUrl} alt=""/>:<Gamepad2 size={17}/>}</span><span>{g.title}</span></button>)}</div></div><div className="side-bottom"><button className="nav-item" onClick={()=>setShowSettings(true)}><Settings2 size={19}/> About Drift</button><div className="version">DRIFT v0.1.0 · DEVELOPMENT</div></div></aside>
- <main className="main"><header className="topbar"><div className="topbar-left"><Menu size={19}/><span>LIBRARY</span><span className="separator">/</span><span className="top-current">{game?.title??'All games'}</span></div><div className="topbar-right"><div className="search"><Search size={16}/><input placeholder="Search your library" value={search} onChange={e=>setSearch(e.target.value)}/></div><span className="dev-pill"><span/> DEV BUILD</span></div></header>
- {!ready?<div className="empty-state"><Activity/> Loading library...</div>:games.length===0?<div className="landing"><div className="landing-art"><span className="orb orb-one"/><span className="orb orb-two"/><div className="landing-logo">D<span>~</span></div></div><span className="eyebrow">WELCOME TO DRIFT</span><h1>Every game deserves<br/><em>another journey.</em></h1><p>One home for your games. A future for the communities that keep them alive.</p><button className="primary-btn large" onClick={()=>setAdding(true)}><Plus size={18}/> Add your first game</button><div className="feature-badges"><span><HardDrive size={15}/> Local-first library</span><span><ShieldAlert size={15}/> You control what runs</span></div></div>:
- <div className="library-content"><div className="page-title"><div><span className="eyebrow">YOUR COLLECTION</span><h1>Library <span>{games.length}</span></h1></div><button className="secondary-btn add-button" onClick={()=>setAdding(true)}><Plus size={17}/> Add Game</button></div>
- {filtered.length===0?<div className="empty-search">No games match your search.</div>:<div className="game-grid">{filtered.map(g=><button key={g.id} className={'game-card '+(g.id===selected?'selected-card':'')} onClick={()=>{setSelected(g.id);setEditing(false)}}><div className="cover">{safeImage(g.artworkUrl)?<img src={g.artworkUrl} alt=""/>:<><Gamepad2 size={38}/><span>DRIFT</span></>}</div><strong>{g.title}</strong><small>{g.profiles.length} {g.profiles.length===1?'profile':'profiles'}</small></button>)}</div>}
- {game&&<section className="detail"><div className="detail-head"><span className="eyebrow">SELECTED GAME</span><button className="icon-button" onClick={()=>setEditing(!editing)} title="Edit game"><MoreHorizontal size={21}/></button></div><div className="detail-title"><div><h2>{game.title}</h2><span><Check size={13}/> Added to your library {game.steamAppId?'· Steam App ID '+game.steamAppId:''}</span></div><button className="primary-btn play-btn" disabled={busy} onClick={play}><Play fill="currentColor" size={17}/>{busy?'Launching…':'Play game'}</button></div><div className="detail-columns"><div className="panel"><span className="panel-label"><Gamepad2 size={15}/> LAUNCH PROFILE</span><div className="profile-picker"><select value={game.activeProfileId} onChange={e=>mutate({...game,activeProfileId:e.target.value})}>{game.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><ChevronDown size={17}/></div><div className="profile-desc">{profile?.community?'Community: '+profile.community:'Standard local launch'}{profile?.host?' · Host: '+profile.host:''}</div>{profile?.adapter&&profile.adapter!=='standard'&&<div className="warning"><ShieldAlert size={15}/> Requires unsupported adapter: {profile.adapter}</div>}<input id="profile-file" className="hidden" type="file" accept=".json,.gprofile,application/json" onChange={e=>{void onProfileFile(e.target.files?.[0]);e.currentTarget.value=''}}/><button className="outline-btn" onClick={()=>document.getElementById('profile-file')?.click()} disabled={importing}><FileInput size={16}/> Import profile file</button></div><div className="panel"><span className="panel-label"><HardDrive size={15}/> LOCAL INSTALLATION</span><div className="path-label">{game.executable}</div><div className="muted tiny">Drift launches existing games. It does not modify installed game files.</div><button className="outline-btn" onClick={()=>setEditing(true)}><Settings2 size={16}/> Edit game details</button></div></div>
- {editing&&<div className="editor"><div className="editor-head"><h3>Edit game</h3><button className="icon-button" onClick={()=>setEditing(false)}><X size={16}/></button></div><label>Title<input value={game.title} onChange={e=>mutate({...game,title:e.target.value})}/></label><label>Executable<input value={game.executable} onChange={e=>mutate({...game,executable:e.target.value})}/></label><label>Artwork URL (HTTPS)<input value={game.artworkUrl??''} onChange={e=>mutate({...game,artworkUrl:safeImage(e.target.value)})}/></label><label>Steam App ID<input type="number" value={game.steamAppId??''} onChange={e=>mutate({...game,steamAppId:e.target.value?Number(e.target.value):undefined})}/></label><button className="danger-btn" onClick={()=>{if(confirm('Remove this game from Drift? This does not uninstall the game.')){void save({...library,games:games.filter(g=>g.id!==game.id)});setSelected(games.find(g=>g.id!==game.id)?.id??null);setEditing(false)}}}>Remove from library</button></div>}
- </section>}</div>}
- <footer className="footer"><div><span className="online-dot"/> Local library <span className="footer-separator">·</span> {inDesktop?'Desktop mode':'Browser preview (no native launch)'}</div><span>GAMES LIVE ON. <Sparkles size={13}/></span></footer></main>
- {status&&<div className="toast" role="status"><span>{status}</span><button aria-label="Dismiss" onClick={()=>setStatus('')}><X size={16}/></button></div>}
- {adding&&<AddGame onCancel={()=>setAdding(false)} onAdd={g=>{void save({...library,games:[...games,g]});setSelected(g.id);setAdding(false)}}/>}
- {showSettings&&<div className="modal-backdrop" onMouseDown={()=>setShowSettings(false)}><section className="modal small-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><h2>About Drift</h2><button className="icon-button" onClick={()=>setShowSettings(false)}><X size={18}/></button></div><p>Drift v0.1.0 · Development</p><p className="muted">Games live on. A local-first PC game library with community-powered profiles in development.</p><div className="info-line"><CircleHelp size={17}/> Native community adapters and Steam metadata retrieval are planned, not implemented.</div><button className="secondary-btn" onClick={()=>setShowSettings(false)}>Close</button></section></div>}
- </div>
+function AddGame({ onClose, onAdd }: { onClose: () => void; onAdd: (game: Game) => void }) {
+  const [title, setTitle] = useState('');
+  const [path, setPath] = useState('');
+  const [appId, setAppId] = useState('');
+  const browse = async () => {
+    if (!inDesktop) return;
+    const value = await open({ multiple: false, directory: false });
+    if (typeof value === 'string') setPath(value);
+  };
+  return <div className="modal-scrim" onMouseDown={onClose}><section className="dialog" onMouseDown={e => e.stopPropagation()}>
+    <div className="dialog-heading"><h2>Add a game</h2><button className="icon-btn" onClick={onClose} aria-label="Close"><X size={18}/></button></div>
+    <p className="muted">Choose an installed game. Add a Steam App ID to automatically load its artwork and details.</p>
+    <form onSubmit={e => { e.preventDefault(); if (!title.trim() || !path.trim()) return;
+      const profile = baseProfile(); onAdd({ id: uid(), title: title.trim(), executable: path.trim(),
+      steamAppId: appId ? Number(appId) : undefined, profiles: [profile], activeProfileId: profile.id, addedAt: new Date().toISOString() }); }}>
+      <label>Game title<input value={title} onChange={e => setTitle(e.target.value)} required autoFocus placeholder="New World: Aeternum" /></label>
+      <label>Game executable<div className="path-input"><input value={path} onChange={e => setPath(e.target.value)} required placeholder="C:\Games\Game\Game.exe"/><button className="subtle-btn" type="button" onClick={browse}><FolderOpen size={16}/> Browse</button></div></label>
+      <label>Steam App ID <span className="optional">(optional)</span><input type="number" min="1" value={appId} onChange={e => setAppId(e.target.value)} placeholder="1063730"/></label>
+      <div className="form-footer"><button type="button" className="subtle-btn" onClick={onClose}>Cancel</button><button type="submit" className="blue-btn"><Plus size={17}/> Add Game</button></div>
+    </form>
+  </section></div>;
+}
+
+function App() {
+  const [library, setLibrary] = useState<LibraryData>(initialLibrary);
+  const libRef = useRef<LibraryData>(initialLibrary);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'general'|'profiles'|'details'|null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [status, setStatus] = useState('');
+  const [working, setWorking] = useState(false);
+  const [loadingIds, setLoadingIds] = useState<string[]>([]);
+  const [ready, setReady] = useState(false);
+  const [media, setMedia] = useState<{ type:'video'|'image'; src:string; name:string }|null>(null);
+  const importInput = useRef<HTMLInputElement>(null);
+  const pendingRequests = useRef(new Set<string>());
+
+  const save = useCallback(async (next: LibraryData) => {
+    // Keep the state and queued saves in order even when multiple metadata requests complete.
+    libRef.current = next;
+    setLibrary(next);
+    try { await writeLibrary(next); }
+    catch (err) { setStatus('Could not save Drift library: ' + String(err)); }
+  }, []);
+  const updateGame = useCallback((gameId: string, update: (game: Game) => Game) => {
+    const next = { ...libRef.current, games: libRef.current.games.map(g => g.id === gameId ? update(g) : g) };
+    void save(next);
+  }, [save]);
+
+  const refresh = useCallback(async (gameId: string, steamAppId: number, silent = false) => {
+    if (!inDesktop || pendingRequests.current.has(gameId)) return;
+    pendingRequests.current.add(gameId);
+    setLoadingIds(v => [...v, gameId]);
+    try {
+      const metadata = await fetchSteamMetadata(steamAppId);
+      updateGame(gameId, g => g.steamAppId === steamAppId ? ({
+        ...g,
+        title: metadata.name || g.title,
+        description: metadata.description || g.description,
+        steamMetadata: metadata,
+      }) : g);
+      if (!silent) setStatus('Steam artwork and game details updated.');
+    } catch (err) {
+      setStatus('Steam metadata: ' + String(err));
+    } finally {
+      pendingRequests.current.delete(gameId);
+      setLoadingIds(v => v.filter(id => id !== gameId));
+    }
+  }, [updateGame]);
+
+  useEffect(() => {
+    readLibrary().then(data => {
+      libRef.current = data; setLibrary(data); setSelected(data.games[0]?.id ?? null);
+      for (const game of data.games) {
+        if (game.steamAppId && !game.steamMetadata) void refresh(game.id, game.steamAppId, true);
+      }
+    }).catch(err => setStatus(String(err))).finally(() => setReady(true));
+  }, [refresh]);
+
+  const games = library.games;
+  const active = games.find(g => g.id === selected) ?? games[0];
+  const profile = active?.profiles.find(p => p.id === active.activeProfileId);
+  const filtered = games.filter(g => g.title.toLowerCase().includes(search.toLowerCase())).sort((a,b) => a.title.localeCompare(b.title));
+  const meta = active?.steamMetadata;
+
+  const addGame = (game: Game) => {
+    void save({ ...libRef.current, games: [...libRef.current.games, game] });
+    setSelected(game.id); setAdding(false);
+    if (game.steamAppId) void refresh(game.id, game.steamAppId);
+  };
+
+  const play = async () => {
+    if (!active) return;
+    setWorking(true);
+    try { await launchGame(active); setStatus('Launched ' + active.title); }
+    catch (err) { setStatus(String(err)); }
+    finally { setWorking(false); }
+  };
+
+  const importProfile = async (file?: File) => {
+    if (!file || !active) return;
+    try {
+      const manifest = ImportedManifest(await file.text());
+      if (manifest.game?.steamAppId && manifest.game.steamAppId !== active.steamAppId)
+        throw Error('This profile is for a different Steam game.');
+      const p: LaunchProfile = {
+        id: manifest.profile.id, name: manifest.profile.name, community: manifest.profile.publisher,
+        adapter: manifest.launch?.adapter || 'standard',
+        executable: manifest.launch?.executable, args: manifest.launch?.args || [],
+        workingDirectory: manifest.launch?.workingDirectory, host: manifest.connection?.host
+      };
+      if (active.profiles.some(existing => existing.id === p.id)) throw Error('Profile already installed.');
+      updateGame(active.id, g => ({ ...g, profiles: [...g.profiles, p], activeProfileId: p.id }));
+      setStatus('Installed ' + p.name + '. Profiles are data-only; custom adapters are not supported yet.');
+    } catch (err) { setStatus('Profile import failed: ' + String(err)); }
+  };
+
+  const removeGame = () => {
+    if (!active || !confirm('Remove ' + active.title + ' from Drift? This will not uninstall the game.')) return;
+    void save({ ...libRef.current, games: libRef.current.games.filter(g => g.id !== active.id) });
+    setSelected(games.find(g => g.id !== active.id)?.id ?? null); setSettingsTab(null);
+  };
+
+  return <div className="drift-app">
+    <header className="app-top"><div className="wordmark"><span className="drift-symbol">D</span><strong>DRIFT</strong></div>
+      <nav className="top-links"><button className="top-active">LIBRARY</button><button onClick={() => setStatus('Community discovery is coming later.')}>COMMUNITY</button></nav>
+      <div className="top-right"><span className="build-label">DEVELOPMENT</span><button className="icon-btn" title="About Drift" onClick={() => setSettingsTab('general')}><Settings size={18}/></button></div>
+    </header>
+
+    <aside className="game-sidebar">
+      <div className="sidebar-header"><span>HOME</span><button className="icon-btn" title="Add game" onClick={() => setAdding(true)}><Plus size={18}/></button></div>
+      <div className="searchbox"><Search size={15}/><input aria-label="Search games" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search games"/></div>
+      <div className="library-sort"><span>GAMES ({filtered.length})</span><SlidersHorizontal size={15}/></div>
+      <div className="games-list">{filtered.map(g => <button key={g.id} className={'library-entry ' + (active?.id === g.id ? 'selected' : '')} onClick={() => { setSelected(g.id); setMenuOpen(false); setSettingsTab(null); }}>
+        <Artwork src={g.steamMetadata?.coverImage || g.artworkUrl || g.steamMetadata?.headerImage} className="list-art" />
+        <span>{g.title}</span>
+      </button>)}</div>
+      <button className="add-bottom" onClick={() => setAdding(true)}><Plus size={15}/> Add a Game</button>
+    </aside>
+
+    <main className="game-main">
+      {!ready ? <div className="blank-state">Loading your library…</div> : !active ?
+        <div className="blank-state"><Gamepad2 size={54}/><h1>Your worlds. Your games.</h1><p>Add a game to your Drift library to get started.</p><button className="blue-btn" onClick={() => setAdding(true)}><Plus size={17}/> Add Your First Game</button></div> :
+        <div className="game-scroll" key={active.id}>
+          <div className="hero" style={{ backgroundImage: validUrl(meta?.heroImage || active.artworkUrl) ? 'linear-gradient(90deg,rgba(8,16,25,.68),transparent 66%),url("' + (meta?.heroImage || active.artworkUrl) + '")' : undefined }}>
+            <div className="hero-shade"/>
+            <div className="hero-title">
+              <span className="hero-eyebrow">IN YOUR LIBRARY</span>
+              <h1>{active.title}</h1>
+              {meta?.genres?.length ? <span className="hero-genres">{meta.genres.slice(0,3).join('  ·  ')}</span> : null}
+            </div>
+          </div>
+          <div className="play-strip">
+            <button className="play-main" onClick={play} disabled={working}><Play size={19} fill="currentColor"/>{working ? 'LAUNCHING' : 'PLAY'}</button>
+            <div className="play-info"><small>INSTALLATION</small><strong>LOCAL GAME</strong></div>
+            {profile?.name !== 'Default' && <div className="play-info"><small>SELECTED COMMUNITY</small><strong>{profile?.name}</strong></div>}
+            <div className="play-right">
+              {active.steamAppId && <button className="strip-btn" title="Refresh Steam artwork & metadata" disabled={loadingIds.includes(active.id)} onClick={() => void refresh(active.id,active.steamAppId!)}><RefreshCcw size={18} className={loadingIds.includes(active.id)?'spin':''}/></button>}
+              <div className="menu-anchor"><button className="strip-btn" title="Game options" onClick={() => setMenuOpen(!menuOpen)}><Settings size={19}/></button>
+                {menuOpen && <div className="game-menu">
+                  <button onClick={() => {setSettingsTab('profiles');setMenuOpen(false);}}><Gamepad2 size={16}/> Community Profiles</button>
+                  <button onClick={() => {setSettingsTab('details');setMenuOpen(false);}}><SlidersHorizontal size={16}/> Game Properties</button>
+                  {active.steamAppId && <button onClick={() => { void refresh(active.id,active.steamAppId!);setMenuOpen(false);}}><RefreshCcw size={16}/> Refresh Steam Details</button>}
+                  <button className="menu-remove" onClick={() => {removeGame();setMenuOpen(false);}}><Trash2 size={16}/> Remove from Drift</button>
+                </div>}
+              </div>
+            </div>
+          </div>
+          <div className="subnav"><span className="subnav-current">OVERVIEW</span><button onClick={() => setSettingsTab('profiles')}>COMMUNITIES</button><button onClick={() => setSettingsTab('details')}>PROPERTIES</button>
+            {active.steamAppId && <a href={'https://store.steampowered.com/app/' + active.steamAppId + '/'} target="_blank" rel="noreferrer">STORE PAGE <ExternalLink size={12}/></a>}</div>
+          <div className="game-body">
+            <section className="center-column">
+              <div className="section-label"><Info size={15}/> ABOUT THIS GAME</div>
+              <div className="overview-card"><h2>{active.title}</h2><p>{meta?.description || active.description || 'Add a Steam App ID in Game Properties to load this game’s description and artwork.'}</p>
+                {meta?.genres?.length ? <div className="genre-row">{meta.genres.map(g => <span key={g}>{g}</span>)}</div> : null}</div>
+              {meta?.trailers?.length ? <><div className="section-heading"><Film size={16}/><h3>Trailers</h3><span>{meta.trailers.length}</span></div><div className="media-grid">{meta.trailers.map((v,i) => <button className="media-tile" key={i} onClick={() => setMedia({type:'video',src:v.url,name:v.name})}><Artwork src={v.thumbnail || meta.headerImage}/><span className="media-play"><Play fill="currentColor" size={19}/></span><small>{v.name}</small></button>)}</div></> : null}
+              {meta?.screenshots?.length ? <><div className="section-heading"><ImageIcon size={16}/><h3>Screenshots</h3><span>{meta.screenshots.length}</span></div><div className="media-grid">{meta.screenshots.slice(0,9).map((src,i) => <button key={i} className="media-tile" onClick={() => setMedia({type:'image',src,name:active.title+' screenshot'})}><Artwork src={src}/></button>)}</div></> : null}
+              {!meta && <div className="notice"><CircleAlert size={18}/><div><strong>No Steam metadata loaded yet</strong><p>{active.steamAppId ? 'Try refreshing to retrieve Steam store artwork, screenshots and trailers.' : 'Open Game Properties to add a Steam App ID.'}</p></div>{active.steamAppId && <button className="subtle-btn" onClick={() => void refresh(active.id,active.steamAppId!)}>Refresh</button>}</div>}
+            </section>
+            <aside className="info-column">
+              <div className="right-panel"><h4>GAME DETAILS</h4><div className="data-pair"><span>Developer</span><strong>{meta?.developer || '—'}</strong></div><div className="data-pair"><span>Publisher</span><strong>{meta?.publisher || '—'}</strong></div><div className="data-pair"><span>Release</span><strong>{meta?.releaseDate || '—'}</strong></div><div className="data-pair"><span>Steam App ID</span><strong>{active.steamAppId || 'Not linked'}</strong></div></div>
+              <div className="right-panel"><h4>YOUR GAME</h4><div className="data-pair"><span>Installed</span><strong>Locally</strong></div><div className="data-pair"><span>Launch profile</span><strong>{profile?.name || 'Default'}</strong></div><button className="right-link" onClick={() => setSettingsTab('profiles')}>Manage community profiles <ChevronDown size={14}/></button></div>
+              <div className="right-panel small-note">Game metadata is sourced from Steam's public store information where available. Availability and usage are subject to Steam's terms.</div>
+            </aside>
+          </div>
+        </div>}
+      <div className="app-status"> <span className="status-dot"/> Drift v0.1.0 · Development <span className="status-right">GAMES LIVE ON.</span></div>
+    </main>
+
+    {status && <div className="toast" role="status">{status}<button onClick={() => setStatus('')} aria-label="Dismiss"><X size={15}/></button></div>}
+    {adding && <AddGame onClose={() => setAdding(false)} onAdd={addGame}/>}
+    {media && <div className="media-backdrop" onMouseDown={() => setMedia(null)}><div className="media-dialog" onMouseDown={e=>e.stopPropagation()}><div className="media-header"><strong>{media.name}</strong><button onClick={() => setMedia(null)} className="icon-btn"><X size={20}/></button></div>{media.type === 'video' ? <video key={media.src} controls autoPlay playsInline src={media.src}/> : <img src={media.src} alt={media.name}/>}</div></div>}
+    {settingsTab && <div className="modal-scrim" onMouseDown={() => setSettingsTab(null)}><section className="dialog settings-dialog" onMouseDown={e => e.stopPropagation()}>
+      <div className="dialog-heading"><div><small className="eyebrow">DRIFT SETTINGS</small><h2>{settingsTab==='general'?'About Drift':settingsTab==='profiles'?'Community Profiles':'Game Properties'}</h2></div><button className="icon-btn" onClick={() => setSettingsTab(null)}><X size={20}/></button></div>
+      {settingsTab==='general'?<div className="modal-copy"><p>Drift v0.1.0 · Development</p><p>Games live on. Drift organizes local games and will support community-maintained multiplayer integrations.</p><p>Custom native adapters and automatic Steam installation detection are not yet implemented.</p></div>:active && settingsTab==='profiles'?
+      <div className="profiles-content"><p className="muted">Profiles are kept per game. Community-specific adapters are not yet available in this build.</p><label>Active profile<select value={active.activeProfileId} onChange={e=>updateGame(active.id,g=>({...g,activeProfileId:e.target.value}))}>{active.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+        <div className="profile-card"><strong>{profile?.name}</strong><span>Publisher: {profile?.community || 'Local'}</span><span>Adapter: {profile?.adapter || 'standard'}</span>{profile?.host && <span>Host: {profile.host}</span>}{profile?.adapter && profile.adapter!=='standard' && <p className="security-note"><ShieldAlert size={15}/> This adapter is not installed or supported. Drift will refuse to run this profile.</p>}</div>
+        <input type="file" accept=".gprofile,.json" hidden ref={importInput} onChange={e => {void importProfile(e.target.files?.[0]);e.currentTarget.value='';}}/>
+        <div className="settings-actions"><button className="subtle-btn" onClick={()=>importInput.current?.click()}><Upload size={15}/> Import Profile</button>
+        {profile && profile.name!=='Default' && <button className="subtle-btn" onClick={() => updateGame(active.id,g=>({ ...g, profiles:g.profiles.filter(p=>p.id!==profile.id), activeProfileId:g.profiles.find(p=>p.name==='Default')?.id||g.profiles[0].id }))}><Trash2 size={15}/> Remove Profile</button>}</div>
+      </div>:active && <div className="properties-content">
+        <label>Game title<input value={active.title} onChange={e => updateGame(active.id,g=>({...g,title:e.target.value}))}/></label>
+        <label>Executable path<input value={active.executable} onChange={e => updateGame(active.id,g=>({...g,executable:e.target.value}))}/></label>
+        <label>Steam App ID<input type="number" min="1" value={active.steamAppId||''} onChange={e => updateGame(active.id,g=>({...g,steamAppId:e.target.value?Number(e.target.value):undefined,steamMetadata:undefined}))}/></label>
+        <button className="subtle-btn" disabled={!active.steamAppId||loadingIds.includes(active.id)} onClick={()=>void refresh(active.id,active.steamAppId!)}><RefreshCcw size={16}/> Fetch Steam artwork & details</button>
+        <label>Custom artwork URL (HTTPS)<input value={active.artworkUrl||''} onChange={e => updateGame(active.id,g=>({...g,artworkUrl:validUrl(e.target.value)}))}/></label>
+        <p className="muted">Changing these settings does not modify the game installation.</p>
+      </div>}
+    </section></div>}
+  </div>;
 }
 export default App;
