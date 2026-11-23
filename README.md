@@ -6,14 +6,15 @@ Drift is a Windows-first, community-oriented PC game launcher. The goal is to or
 
 ## Current development build (v0.1.0)
 
-- Dark, responsive library UI with game cards and a game detail panel.
-- Add an installed game with an executable path and optional artwork URL / Steam App ID.
+- Steam-inspired library layout: compact left game list, large game banner and a Play strip, with Drift branding.
+- Add an installed game with an executable path and optional Steam App ID.
 - Persist local library data in Drift's app data folder.
 - Launch local executable files from the desktop app.
-- Import data-only JSON / `.gprofile` files and switch profiles per game.
+- Automatically request available Steam Store metadata (game description, artwork, trailers and screenshots) when an App ID is provided. Refresh an existing game with the toolbar icon or Game Properties. Steam's public Store endpoint may be unavailable or rate-limited; metadata is not guaranteed.
+- Import data-only JSON / `.gprofile` files and switch profiles per game through Game Options → Community Profiles.
 - Reject launch profiles that require unsupported native adapters.
 
-**Not implemented yet:** automatic Steam scanning, automatic Steam metadata/artwork retrieval, installable native adapters, user accounts, game downloads, and multiplayer server redirection. Importing a profile does not automatically reroute a game's connection.
+**Not implemented yet:** automatic Steam scanning, installable native adapters, user accounts, game downloads, and multiplayer server redirection. Importing a profile does not automatically reroute a game's connection.
 
 ## Development setup
 
@@ -27,7 +28,7 @@ npm install
 npm run tauri dev
 ```
 
-For a frontend-only preview, run `npm run dev`. Browser previews use localStorage and **cannot launch native games**. `npm run build` validates TypeScript and bundles the frontend. Native packaging, code signing and CI are not yet configured.
+For a frontend-only preview, run `npm run dev`. Browser previews use localStorage and **cannot launch native games**. `npm run build` validates TypeScript and bundles the frontend. Windows and frontend CI compile checks are configured; code signing and distributable installers are not yet configured.
 
 ## Release branches
 
