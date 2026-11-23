@@ -41,6 +41,7 @@ fn asset(app_id: u32, filename: &str) -> String {
     format!("https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{app_id}/{filename}")
 }
 
+#[tauri::command]
 pub async fn fetch_steam_metadata(app_id: u32) -> Result<SteamMetadata, String> {
     if app_id == 0 { return Err("Steam App ID must be a positive number.".into()); }
     let client = reqwest::Client::builder()
