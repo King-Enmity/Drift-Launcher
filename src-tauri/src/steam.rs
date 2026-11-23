@@ -8,12 +8,16 @@ pub struct Trailer {
     name: String,
     thumbnail: Option<String>,
     url: String,
+    #[serde(default)]
+    format: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SteamMetadata {
     name: String,
+    #[serde(default)]
+    media_version: u8,
     header_image: Option<String>,
     hero_image: Option<String>,
     cover_image: Option<String>,
@@ -116,18 +120,29 @@ pub async fn fetch_steam_metadata(app_id: u32) -> Result<SteamMetadata, String> 
     let screenshots = data.get("screenshots").and_then(Value::as_array)
         .map(|items| items.iter().filter_map(|v| v.get("path_full").and_then(Value::as_str).and_then(https_url)).take(18).collect())
         .unwrap_or_default();
+    // Steam now primarily serves full trailers via HLS/DASH manifests, often
+    // without the older movies[].mp4 field. Prefer HLS for video WITH audio.
+    // Do not use Steam's silent microtrailer.mp4 as a full trailer.
     let trailers = data.get("movies").and_then(Value::as_array)
         .map(|items| items.iter().filter_map(|v| {
-            let mp4 = v.get("mp4")?;
-            let url = mp4.get("max").or_else(|| mp4.get("480"))?.as_str().and_then(https_url)?;
+            let (url, format) = if let Some(hls) = v.get("hls_h264").and_then(Value::as_str).and_then(https_url) {
+                (hls, "hls")
+            } else {
+                let mp4 = v.get("mp4")?;
+                let url = mp4.get("max").or_else(|| mp4.get("480"))?.as_str().and_then(https_url)?;
+                if url.contains("microtrailer") { return None; }
+                (url, "mp4")
+            };
             Some(Trailer {
                 name: get_string(v, "name").unwrap_or_else(|| "Game trailer".into()),
                 thumbnail: v.get("thumbnail").and_then(Value::as_str).and_then(https_url),
                 url,
+                format: Some(format.to_string()),
             })
         }).take(12).collect()).unwrap_or_default();
     Ok(SteamMetadata {
         name,
+        media_version: 2,
         header_image,
         hero_image: Some(asset(app_id, "library_hero.jpg")),
         cover_image: Some(asset(app_id, "library_600x900.jpg")),

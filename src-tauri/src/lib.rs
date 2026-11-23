@@ -14,6 +14,8 @@ struct LaunchProfile {
     community: Option<String>,
     host: Option<String>,
     adapter: Option<String>,
+    #[serde(default)]
+    presentation: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

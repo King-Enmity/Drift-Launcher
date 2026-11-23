@@ -4,10 +4,12 @@ import {
   Globe2, Image as ImageIcon, Info, Monitor, Play, RefreshCcw, Shield, Sparkles, Tag
 } from 'lucide-react';
 import type { Game, SteamMetadata } from './types';
-import { descriptionVideos, editorialContent, plainText, SteamRichDescription, supportedLanguages } from './steamContent';
+import TrailerPlayer from './TrailerPlayer';
+import type { ActivePresentation } from './profilePresentation';
+import { editorialContent, plainText, SteamRichDescription, supportedLanguages } from './steamContent';
 
 type ExpandedMedia = { type:'video'|'image'; src:string; name:string };
-type MediaItem = ExpandedMedia & { thumbnail?:string };
+type MediaItem = ExpandedMedia & { thumbnail?:string; format?:'hls'|'mp4' };
 
 function MediaGallery({ game, metadata, onExpand }: {
   game:Game; metadata?:SteamMetadata; onExpand:(media:ExpandedMedia)=>void;
@@ -15,10 +17,10 @@ function MediaGallery({ game, metadata, onExpand }: {
   const media = useMemo(() => {
     const items:MediaItem[] = [];
     const used = new Set<string>();
-    for (const trailer of [...(metadata?.trailers || []), ...descriptionVideos(metadata)]) {
+    for (const trailer of metadata?.trailers || []) {
       if (!trailer.url || used.has(trailer.url)) continue;
       used.add(trailer.url);
-      items.push({ type:'video', src:trailer.url, name:trailer.name, thumbnail:trailer.thumbnail });
+      items.push({ type:'video', src:trailer.url, name:trailer.name, thumbnail:trailer.thumbnail, format:trailer.format });
     }
     for (const [index, src] of (metadata?.screenshots || []).entries()) {
       if (used.has(src)) continue;
@@ -32,9 +34,8 @@ function MediaGallery({ game, metadata, onExpand }: {
     return items;
   }, [game.title,game.artworkUrl,metadata]);
   const [index,setIndex] = useState(0);
-  const [videoError,setVideoError] = useState(false);
   const current = media[Math.min(index,media.length-1)];
-  const choose = (next:number) => { setIndex(Math.max(0,Math.min(media.length-1,next))); setVideoError(false); };
+  const choose = (next:number) => setIndex(Math.max(0,Math.min(media.length-1,next)));
 
   if (!current) return <div className="store-gallery-empty">
     <ImageIcon size={32}/><strong>Media will appear here</strong>
@@ -42,10 +43,11 @@ function MediaGallery({ game, metadata, onExpand }: {
   </div>;
   return <div className="store-gallery">
     <div className="store-stage">
-      {current.type==='video' ? <>
-        <video key={current.src} src={current.src} poster={current.thumbnail} controls playsInline preload="metadata" onError={()=>setVideoError(true)}/>
-        {videoError && <div className="store-video-error">Steam's video stream is currently unavailable. You can view this game's media on its Steam page.</div>}
-      </> : <button className="store-stage-image" onClick={()=>onExpand(current)} title="Open screenshot">
+      {current.type==='video' ? <TrailerPlayer
+        key={current.src}
+        steamAppId={game.steamAppId}
+        trailer={{name:current.name,url:current.src,thumbnail:current.thumbnail,format:current.format}}
+      /> : <button className="store-stage-image" onClick={()=>onExpand(current)} title="Open screenshot">
         <img key={current.src} src={current.src} alt={current.name}/>
         <span className="store-image-expand"><ImageIcon size={15}/> View image</span>
       </button>}
@@ -74,8 +76,9 @@ function Field({label,value}:{label:string;value?:string|number}) {
 function Heading({children}:{children:React.ReactNode}) {
   return <div className="section-heading store-section-title">{children}</div>;
 }
-export default function StorePanel({game,metadata,loading,onRefresh,onExpand}:{
+export default function StorePanel({game,metadata,loading,onRefresh,onExpand,presentation}:{
   game:Game;metadata?:SteamMetadata;loading:boolean;onRefresh:()=>void;onExpand:(media:ExpandedMedia)=>void;
+  presentation?:ActivePresentation;
 }) {
   const [showLegal,setShowLegal]=useState(false);
   const editorial = useMemo(()=>editorialContent(metadata),[metadata]);
@@ -90,7 +93,7 @@ export default function StorePanel({game,metadata,loading,onRefresh,onExpand}:{
   return <div className="game-body store-layout">
     <section className="store-center">
       <Heading><Film size={17}/><h3>Videos &amp; screenshots</h3><span>
-        {(metadata?.trailers?.length||0)+descriptionVideos(metadata).length} videos · {metadata?.screenshots?.length||0} screenshots
+        {metadata?.trailers?.length||0} videos · {metadata?.screenshots?.length||0} screenshots
       </span></Heading>
       <MediaGallery game={game} metadata={metadata} onExpand={onExpand}/>
 
@@ -100,6 +103,7 @@ export default function StorePanel({game,metadata,loading,onRefresh,onExpand}:{
       </section>}
 
       <section className="store-about" id="drift-about">
+        {presentation?.community && <div className="community-content-label">Community profile content: {presentation.communityName}</div>}
         <Heading><Info size={17}/><h3>About this game</h3></Heading>
         <p className="store-short-description">{summary}</p>
         {about && <SteamRichDescription html={about}/>}
@@ -119,6 +123,7 @@ export default function StorePanel({game,metadata,loading,onRefresh,onExpand}:{
 
     <aside className="store-info">
       <div className="store-product-card">
+        {presentation?.community && <div className="community-content-label">Community: {presentation.communityName}</div>}
         {metadata?.headerImage ? <img className="store-product-banner" src={metadata.headerImage} alt={game.title+' artwork'}/>:
           <div className="store-product-placeholder"><div className="store-product-placeholder-inner"><Gamepad2 size={26}/>{game.title}</div></div>}
         <p className="store-product-description">{summary}</p>
@@ -166,6 +171,7 @@ export default function StorePanel({game,metadata,loading,onRefresh,onExpand}:{
       </div>}
 
       <div className="store-side-panel store-links-panel">
+        {presentation?.communityWebsite && <a href={presentation.communityWebsite} target="_blank" rel="noreferrer">Community website <ExternalLink size={14}/></a>}
         <h4>Game resources</h4>
         {game.steamAppId && <a href={'https://store.steampowered.com/app/'+game.steamAppId+'/'} target="_blank" rel="noreferrer">View on Steam <ExternalLink size={14}/></a>}
         {game.steamAppId && <a href={'https://steamcommunity.com/app/'+game.steamAppId} target="_blank" rel="noreferrer">Community hub <ExternalLink size={14}/></a>}

@@ -1,6 +1,7 @@
-export type Trailer = { name: string; thumbnail?: string; url: string };
+export type Trailer = { name: string; thumbnail?: string; url: string; format?: 'hls' | 'mp4' };
 export type SteamMetadata = {
   name: string;
+  mediaVersion?: number;
   headerImage?: string;
   heroImage?: string;
   coverImage?: string;
@@ -26,6 +27,19 @@ export type SteamMetadata = {
   trailers: Trailer[];
   fetchedAt?: string;
 };
+export type MediaMergeMode = 'inherit' | 'append' | 'replace';
+export type CommunityPresentation = {
+  title?: string;
+  description?: string;
+  descriptionMode?: 'replace' | 'append';
+  heroImage?: string;
+  headerImage?: string;
+  screenshots?: string[];
+  screenshotsMode?: MediaMergeMode;
+  trailers?: Trailer[];
+  trailersMode?: MediaMergeMode;
+  website?: string;
+};
 export type LaunchProfile = {
   id: string;
   name: string;
@@ -35,6 +49,7 @@ export type LaunchProfile = {
   community?: string;
   host?: string;
   adapter?: string;
+  presentation?: CommunityPresentation;
 };
 export type Game = {
   id: string;
@@ -55,4 +70,5 @@ export type ImportedProfile = {
   game?: { steamAppId?: number; name?: string };
   launch?: { adapter?: string; executable?: string; args?: string[]; workingDirectory?: string };
   connection?: { host?: string; port?: number };
+  presentation?: CommunityPresentation;
 };

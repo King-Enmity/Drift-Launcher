@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "profile": {
+    "id": "example.newworld-community",
+    "name": "Example New World Community",
+    "version": "1.0.0",
+    "publisher": "Example Community"
+  },
+  "game": {
+    "steamAppId": 1063730,
+    "name": "New World: Aeternum"
+  },
+  "launch": {
+    "adapter": "newworld-community",
+    "args": []
+  },
+  "connection": {
+    "host": "play.example.invalid",
+    "port": 7777
+  },
+  "presentation": {
+    "title": "New World — Example Community",
+    "description": "Experience Aeternum with a different community. Example profile: not affiliated with any live project.",
+    "descriptionMode": "replace",
+    "screenshotsMode": "inherit",
+    "trailersMode": "inherit"
+  }
+}

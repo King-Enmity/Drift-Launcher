@@ -5,7 +5,8 @@ import {
   Image as ImageIcon, Info, Library, MoreHorizontal, Play, Plus, RefreshCcw,
   Search, Settings, ShieldAlert, SlidersHorizontal, Trash2, Upload, X
 } from 'lucide-react';
-import type { Game, ImportedProfile, LaunchProfile, Library as LibraryData } from './types';
+import type { Game, LaunchProfile, Library as LibraryData } from './types';
+import { parseImportedProfile, resolvePresentation } from './profilePresentation';
 import StorePanel from './StorePanel';
 import { fetchSteamMetadata, inDesktop, launchGame, readLibrary, writeLibrary } from './bridge';
 
@@ -17,23 +18,6 @@ const validUrl = (url?: string) => {
   catch { return undefined; }
 };
 const baseProfile = (): LaunchProfile => ({ id: uid(), name: 'Default', args: [], adapter: 'standard' });
-
-function ImportedManifest(raw: string): ImportedProfile {
-  if (raw.length > 100_000) throw Error('Profile file exceeds 100 KB.');
-  const data: ImportedProfile = JSON.parse(raw);
-  if (data.schemaVersion !== 1 || !data.profile || typeof data.profile.name !== 'string' || typeof data.profile.id !== 'string')
-    throw Error('This is not a valid Drift profile v1.');
-  if (!data.profile.name.trim() || data.profile.name.length > 120 || !data.profile.id.trim() || data.profile.id.length > 120)
-    throw Error('Invalid profile name or identifier.');
-  if (data.launch?.args && (!Array.isArray(data.launch.args) || data.launch.args.length > 64 ||
-      data.launch.args.some(a => typeof a !== 'string' || a.length > 1024))) throw Error('Invalid profile arguments.');
-  if (data.launch?.adapter && typeof data.launch.adapter !== 'string') throw Error('Invalid adapter identifier.');
-  if (data.launch?.executable && typeof data.launch.executable !== 'string') throw Error('Invalid executable.');
-  if (data.launch?.workingDirectory && typeof data.launch.workingDirectory !== 'string') throw Error('Invalid working directory.');
-  if (data.connection?.host && (typeof data.connection.host !== 'string' || data.connection.host.length > 255))
-    throw Error('Invalid host.');
-  return data;
-}
 
 function Artwork({ src, alt = '', className = '' }: { src?: string; alt?: string; className?: string }) {
   const [failed, setFailed] = useState(false);
@@ -121,7 +105,7 @@ function App() {
       for (const game of data.games) {
         // Refresh older metadata once after upgrading so existing games gain inline videos,
         // supported languages and richer details without having to be re-added.
-        if (game.steamAppId && (!game.steamMetadata || !('supportedPlatforms' in game.steamMetadata))) {
+        if (game.steamAppId && (!game.steamMetadata || game.steamMetadata.mediaVersion !== 2)) {
           void refresh(game.id, game.steamAppId, true);
         }
       }
@@ -132,7 +116,8 @@ function App() {
   const active = games.find(g => g.id === selected) ?? games[0];
   const profile = active?.profiles.find(p => p.id === active.activeProfileId);
   const filtered = games.filter(g => g.title.toLowerCase().includes(search.toLowerCase())).sort((a,b) => a.title.localeCompare(b.title));
-  const meta = active?.steamMetadata;
+  const presentation = active ? resolvePresentation(active,profile) : undefined;
+  const meta = presentation?.metadata;
 
   const addGame = (game: Game) => {
     void save({ ...libRef.current, games: [...libRef.current.games, game] });
@@ -151,14 +136,15 @@ function App() {
   const importProfile = async (file?: File) => {
     if (!file || !active) return;
     try {
-      const manifest = ImportedManifest(await file.text());
+      const manifest = parseImportedProfile(await file.text());
       if (manifest.game?.steamAppId && manifest.game.steamAppId !== active.steamAppId)
         throw Error('This profile is for a different Steam game.');
       const p: LaunchProfile = {
         id: manifest.profile.id, name: manifest.profile.name, community: manifest.profile.publisher,
         adapter: manifest.launch?.adapter || 'standard',
         executable: manifest.launch?.executable, args: manifest.launch?.args || [],
-        workingDirectory: manifest.launch?.workingDirectory, host: manifest.connection?.host
+        workingDirectory: manifest.launch?.workingDirectory, host: manifest.connection?.host,
+        presentation: manifest.presentation
       };
       if (active.profiles.some(existing => existing.id === p.id)) throw Error('Profile already installed.');
       updateGame(active.id, g => ({ ...g, profiles: [...g.profiles, p], activeProfileId: p.id }));
@@ -193,18 +179,21 @@ function App() {
       {!ready ? <div className="blank-state">Loading your library…</div> : !active ?
         <div className="blank-state"><Gamepad2 size={54}/><h1>Your worlds. Your games.</h1><p>Add a game to your Drift library to get started.</p><button className="blue-btn" onClick={() => setAdding(true)}><Plus size={17}/> Add Your First Game</button></div> :
         <div className="game-scroll" key={active.id}>
-          <div className="hero" style={{ backgroundImage: validUrl(meta?.heroImage || active.artworkUrl) ? 'linear-gradient(90deg,rgba(8,16,25,.68),transparent 66%),url("' + (meta?.heroImage || active.artworkUrl) + '")' : undefined }}>
+          <div className="hero" style={{ backgroundImage: validUrl(presentation?.heroImage) ? 'linear-gradient(90deg,rgba(8,16,25,.68),transparent 66%),url("' + presentation?.heroImage + '")' : undefined }}>
             <div className="hero-shade"/>
             <div className="hero-title">
-              <span className="hero-eyebrow">IN YOUR LIBRARY</span>
-              <h1>{active.title}</h1>
+              <span className="hero-eyebrow">{presentation?.community ? 'COMMUNITY PROFILE · '+presentation.communityName : 'IN YOUR LIBRARY'}</span>
+              <h1>{presentation?.title || active.title}</h1>
               {meta?.genres?.length ? <span className="hero-genres">{meta.genres.slice(0,3).join('  ·  ')}</span> : null}
             </div>
           </div>
           <div className="play-strip">
             <button className="play-main" onClick={play} disabled={working}><Play size={19} fill="currentColor"/>{working ? 'LAUNCHING' : 'PLAY'}</button>
             <div className="play-info"><small>INSTALLATION</small><strong>LOCAL GAME</strong></div>
-            {profile?.name !== 'Default' && <div className="play-info"><small>SELECTED COMMUNITY</small><strong>{profile?.name}</strong></div>}
+            <button className="play-mode-button" onClick={() => setSettingsTab('profiles')} title="Switch game profile">
+              <span><small>PLAY MODE</small><strong>{presentation?.community ? profile?.name : 'Default — Steam'}</strong></span>
+              <ChevronDown size={15}/>
+            </button>
             <div className="play-right">
               {active.steamAppId && <button className="strip-btn" title="Refresh Steam artwork & metadata" disabled={loadingIds.includes(active.id)} onClick={() => void refresh(active.id,active.steamAppId!)}><RefreshCcw size={18} className={loadingIds.includes(active.id)?'spin':''}/></button>}
               <div className="menu-anchor"><button className="strip-btn" title="Game options" onClick={() => setMenuOpen(!menuOpen)}><Settings size={19}/></button>
@@ -222,6 +211,7 @@ function App() {
           <StorePanel
             game={active}
             metadata={meta}
+            presentation={presentation}
             loading={loadingIds.includes(active.id)}
             onRefresh={() => { if (active.steamAppId) void refresh(active.id, active.steamAppId); }}
             onExpand={item => setMedia(item)}
@@ -237,7 +227,7 @@ function App() {
       <div className="dialog-heading"><div><small className="eyebrow">DRIFT SETTINGS</small><h2>{settingsTab==='general'?'About Drift':settingsTab==='profiles'?'Community Profiles':'Game Properties'}</h2></div><button className="icon-btn" onClick={() => setSettingsTab(null)}><X size={20}/></button></div>
       {settingsTab==='general'?<div className="modal-copy"><p>Drift v0.1.0 · Development</p><p>Games live on. Drift organizes local games and will support community-maintained multiplayer integrations.</p><p>Custom native adapters and automatic Steam installation detection are not yet implemented.</p></div>:active && settingsTab==='profiles'?
       <div className="profiles-content"><p className="muted">Profiles are kept per game. Community-specific adapters are not yet available in this build.</p><label>Active profile<select value={active.activeProfileId} onChange={e=>updateGame(active.id,g=>({...g,activeProfileId:e.target.value}))}>{active.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-        <div className="profile-card"><strong>{profile?.name}</strong><span>Publisher: {profile?.community || 'Local'}</span><span>Adapter: {profile?.adapter || 'standard'}</span>{profile?.host && <span>Host: {profile.host}</span>}{profile?.adapter && profile.adapter!=='standard' && <p className="security-note"><ShieldAlert size={15}/> This adapter is not installed or supported. Drift will refuse to run this profile.</p>}</div>
+        <div className="profile-card"><strong>{profile?.name}</strong><span>Publisher: {profile?.community || 'Local'}</span><span>Adapter: {profile?.adapter || 'standard'}</span>{profile?.host && <span>Host: {profile.host}</span>}{profile?.presentation && <span>Custom game page: {profile.presentation.description ? 'Description' : 'Steam description'} · {profile.presentation.trailers?.length||0} videos · {profile.presentation.screenshots?.length||0} screenshots</span>}{profile?.adapter && profile.adapter!=='standard' && <p className="security-note"><ShieldAlert size={15}/> This adapter is not installed or supported. Drift will refuse to run this profile.</p>}</div>
         <input type="file" accept=".gprofile,.json" hidden ref={importInput} onChange={e => {void importProfile(e.target.files?.[0]);e.currentTarget.value='';}}/>
         <div className="settings-actions"><button className="subtle-btn" onClick={()=>importInput.current?.click()}><Upload size={15}/> Import Profile</button>
         {profile && profile.name!=='Default' && <button className="subtle-btn" onClick={() => updateGame(active.id,g=>({ ...g, profiles:g.profiles.filter(p=>p.id!==profile.id), activeProfileId:g.profiles.find(p=>p.name==='Default')?.id||g.profiles[0].id }))}><Trash2 size={15}/> Remove Profile</button>}</div>
