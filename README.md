@@ -1,26 +1,45 @@
-# Drift
+# DRIFT
 
 **Games live on.**
 
-Drift is a community-first PC game launcher. The long-term goal is to keep local games organized and let players choose community-maintained multiplayer profiles and trusted game-specific adapters.
+Drift is a Windows-first, community-oriented PC game launcher. The goal is to organize locally installed games and eventually let players import profiles for community-operated multiplayer backends.
 
-## Development channels
+## Current development build (v0.1.0)
 
-- `stable` — tested releases only.
-- `coming-soon` — preview builds and release candidates.
-- `development` — active work and experiments.
+- Dark, responsive library UI with game cards and a game detail panel.
+- Add an installed game with an executable path and optional artwork URL / Steam App ID.
+- Persist local library data in Drift's app data folder.
+- Launch local executable files from the desktop app.
+- Import data-only JSON / `.gprofile` files and switch profiles per game.
+- Reject launch profiles that require unsupported native adapters.
 
-The `main` branch is the repository bootstrap branch. Start development from `development`; promote tested changes to `coming-soon` and then `stable` by pull request. GitHub branch names cannot contain spaces.
+**Not implemented yet:** automatic Steam scanning, automatic Steam metadata/artwork retrieval, installable native adapters, user accounts, game downloads, and multiplayer server redirection. Importing a profile does not automatically reroute a game's connection.
 
-## Status
+## Development setup
 
-Initial project setup. The working application code is being developed on `development`.
+Use the **`development`** branch. On Windows, install Node.js, Rust, Microsoft C++ Build Tools, and the Tauri prerequisites (WebView2).
 
-## Principles
+```powershell
+git clone https://github.com/King-Enmity/Drift-Launcher.git
+cd Drift-Launcher
+git switch development
+npm install
+npm run tauri dev
+```
 
-- The player's existing game installation remains theirs and is never silently modified.
-- Community profiles are declarative data, not automatically executed code.
-- Native adapters will require separate explicit installation and trust review by the player.
-- No copyrighted game files are bundled with Drift.
+For a frontend-only preview, run `npm run dev`. Browser previews use localStorage and **cannot launch native games**. `npm run build` validates TypeScript and bundles the frontend. Native packaging, code signing and CI are not yet configured.
 
-See `development` for the latest work.
+## Release branches
+
+- `development` — active feature development.
+- `coming-soon` — preview and release-candidate testing.
+- `stable` — tested releases.
+- `main` — original bootstrap branch.
+
+Promote reviewed changes from `development` to `coming-soon` to `stable` using pull requests; see [branching guide](docs/BRANCHING.md).
+
+## Security model
+
+Community profiles are data, never executable code. Importing profiles does not download or run adapters. Future native adapters must be installed separately with explicit user consent and publisher transparency. Only add executables and profiles you trust. Drift never bundles game binaries or modifies game installations.
+
+See [draft profile specification](docs/PROFILE-SPEC.md).
