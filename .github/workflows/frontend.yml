@@ -1,0 +1,17 @@
+name: Frontend checks
+on:
+  push:
+    branches: [development, coming-soon, stable]
+  pull_request:
+    branches: [development, coming-soon, stable]
+jobs:
+  frontend:
+    name: TypeScript and Vite build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
