@@ -1,0 +1,20 @@
+name: Windows desktop build
+on:
+  push:
+    branches: [development, coming-soon, stable]
+  pull_request:
+    branches: [development, coming-soon, stable]
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm install --no-audit --no-fund
+      - run: npm run tauri build -- --no-bundle
