@@ -6,6 +6,11 @@ export type SteamMetadata = {
   coverImage?: string;
   backgroundImage?: string;
   description?: string;
+  detailedDescription?: string;
+  features?: string[];
+  website?: string;
+  minimumRequirements?: string;
+  recommendedRequirements?: string;
   developer?: string;
   publisher?: string;
   releaseDate?: string;

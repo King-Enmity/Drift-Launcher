@@ -5,7 +5,8 @@ import {
   Image as ImageIcon, Info, Library, MoreHorizontal, Play, Plus, RefreshCcw,
   Search, Settings, ShieldAlert, SlidersHorizontal, Trash2, Upload, X
 } from 'lucide-react';
-import type { Game, ImportedProfile, LaunchProfile, Library as LibraryData, SteamMetadata } from './types';
+import type { Game, ImportedProfile, LaunchProfile, Library as LibraryData } from './types';
+import StorePanel from './StorePanel';
 import { fetchSteamMetadata, inDesktop, launchGame, readLibrary, writeLibrary } from './bridge';
 
 const uid = () => crypto.randomUUID();
@@ -214,21 +215,13 @@ function App() {
           </div>
           <div className="subnav"><span className="subnav-current">OVERVIEW</span><button onClick={() => setSettingsTab('profiles')}>COMMUNITIES</button><button onClick={() => setSettingsTab('details')}>PROPERTIES</button>
             {active.steamAppId && <a href={'https://store.steampowered.com/app/' + active.steamAppId + '/'} target="_blank" rel="noreferrer">STORE PAGE <ExternalLink size={12}/></a>}</div>
-          <div className="game-body">
-            <section className="center-column">
-              <div className="section-label"><Info size={15}/> ABOUT THIS GAME</div>
-              <div className="overview-card"><h2>{active.title}</h2><p>{meta?.description || active.description || 'Add a Steam App ID in Game Properties to load this game’s description and artwork.'}</p>
-                {meta?.genres?.length ? <div className="genre-row">{meta.genres.map(g => <span key={g}>{g}</span>)}</div> : null}</div>
-              {meta?.trailers?.length ? <><div className="section-heading"><Film size={16}/><h3>Trailers</h3><span>{meta.trailers.length}</span></div><div className="media-grid">{meta.trailers.map((v,i) => <button className="media-tile" key={i} onClick={() => setMedia({type:'video',src:v.url,name:v.name})}><Artwork src={v.thumbnail || meta.headerImage}/><span className="media-play"><Play fill="currentColor" size={19}/></span><small>{v.name}</small></button>)}</div></> : null}
-              {meta?.screenshots?.length ? <><div className="section-heading"><ImageIcon size={16}/><h3>Screenshots</h3><span>{meta.screenshots.length}</span></div><div className="media-grid">{meta.screenshots.slice(0,9).map((src,i) => <button key={i} className="media-tile" onClick={() => setMedia({type:'image',src,name:active.title+' screenshot'})}><Artwork src={src}/></button>)}</div></> : null}
-              {!meta && <div className="notice"><CircleAlert size={18}/><div><strong>No Steam metadata loaded yet</strong><p>{active.steamAppId ? 'Try refreshing to retrieve Steam store artwork, screenshots and trailers.' : 'Open Game Properties to add a Steam App ID.'}</p></div>{active.steamAppId && <button className="subtle-btn" onClick={() => void refresh(active.id,active.steamAppId!)}>Refresh</button>}</div>}
-            </section>
-            <aside className="info-column">
-              <div className="right-panel"><h4>GAME DETAILS</h4><div className="data-pair"><span>Developer</span><strong>{meta?.developer || '—'}</strong></div><div className="data-pair"><span>Publisher</span><strong>{meta?.publisher || '—'}</strong></div><div className="data-pair"><span>Release</span><strong>{meta?.releaseDate || '—'}</strong></div><div className="data-pair"><span>Steam App ID</span><strong>{active.steamAppId || 'Not linked'}</strong></div></div>
-              <div className="right-panel"><h4>YOUR GAME</h4><div className="data-pair"><span>Installed</span><strong>Locally</strong></div><div className="data-pair"><span>Launch profile</span><strong>{profile?.name || 'Default'}</strong></div><button className="right-link" onClick={() => setSettingsTab('profiles')}>Manage community profiles <ChevronDown size={14}/></button></div>
-              <div className="right-panel small-note">Game metadata is sourced from Steam's public store information where available. Availability and usage are subject to Steam's terms.</div>
-            </aside>
-          </div>
+          <StorePanel
+            game={active}
+            metadata={meta}
+            loading={loadingIds.includes(active.id)}
+            onRefresh={() => { if (active.steamAppId) void refresh(active.id, active.steamAppId); }}
+            onExpand={item => setMedia(item)}
+          />
         </div>}
       <div className="app-status"> <span className="status-dot"/> Drift v0.1.0 · Development <span className="status-right">GAMES LIVE ON.</span></div>
     </main>

@@ -19,6 +19,12 @@ pub struct SteamMetadata {
     cover_image: Option<String>,
     background_image: Option<String>,
     description: Option<String>,
+    detailed_description: Option<String>,
+    #[serde(default)]
+    features: Vec<String>,
+    website: Option<String>,
+    minimum_requirements: Option<String>,
+    recommended_requirements: Option<String>,
     developer: Option<String>,
     publisher: Option<String>,
     release_date: Option<String>,
@@ -70,6 +76,13 @@ pub async fn fetch_steam_metadata(app_id: u32) -> Result<SteamMetadata, String> 
     let header_image = data.get("header_image").and_then(Value::as_str).and_then(https_url)
         .or_else(|| Some(asset(app_id, "header.jpg")));
     let description = get_string(data, "short_description");
+    let detailed_description = get_string(data, "detailed_description");
+    let website = data.get("website").and_then(Value::as_str).and_then(https_url);
+    let minimum_requirements = data.get("pc_requirements").and_then(|v| get_string(v, "minimum"));
+    let recommended_requirements = data.get("pc_requirements").and_then(|v| get_string(v, "recommended"));
+    let features = data.get("categories").and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(|v| get_string(v, "description")).take(12).collect())
+        .unwrap_or_default();
     let developer = data.get("developers").and_then(Value::as_array)
         .and_then(|v| v.iter().find_map(Value::as_str)).map(str::to_owned);
     let publisher = data.get("publishers").and_then(Value::as_array)
@@ -100,6 +113,11 @@ pub async fn fetch_steam_metadata(app_id: u32) -> Result<SteamMetadata, String> 
         background_image: data.get("background_raw").or_else(|| data.get("background"))
             .and_then(Value::as_str).and_then(https_url),
         description,
+        detailed_description,
+        features,
+        website,
+        minimum_requirements,
+        recommended_requirements,
         developer,
         publisher,
         release_date,

@@ -134,3 +134,64 @@ h1,h2,h3,h4,p{margin:0}
 .spin{animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:1050px){.drift-app{grid-template-columns:220px minmax(0,1fr)}.game-body{grid-template-columns:minmax(0,1fr)}.info-column{display:grid;grid-template-columns:1fr 1fr;gap:12px}.right-panel{margin:0}.info-column .small-note{grid-column:1/-1}.hero-title h1{font-size:34px}}
+
+
+/* Store-inspired game details. Library sidebar and primary Play action stay intact. */
+.store-layout{grid-template-columns:minmax(0,1fr) minmax(260px,315px);gap:23px;padding-top:17px}
+.store-center{min-width:0}
+.store-section-title{margin:5px 0 12px;border-bottom:1px solid #3c5667;padding-bottom:10px;color:#d6edf1}
+.store-section-title h3{font-size:13px;letter-spacing:.055em}
+.store-section-title>span{font-size:11px;color:#8da9b9;margin-left:auto}
+.store-gallery{width:100%;min-width:0;background:#121e29;overflow:hidden}
+.store-stage{position:relative;width:100%;aspect-ratio:16/9;background:#09131b;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.store-stage video{display:block;width:100%;height:100%;object-fit:contain;background:#000}
+.store-stage-image{width:100%;height:100%;background:none;border:0;padding:0;display:block;position:relative}
+.store-stage-image img{width:100%;height:100%;object-fit:contain;display:block}
+.store-image-expand{position:absolute;right:13px;bottom:11px;display:flex;align-items:center;gap:6px;color:#fff;background:#07151bcc;padding:7px 11px;font-size:11px;opacity:0}
+.store-stage-image:hover .store-image-expand{opacity:1}
+.store-gallery-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;background:#1b303e;min-height:270px;color:#91b4c2;text-align:center;padding:30px}
+.store-gallery-empty strong{color:#d4e3e7}
+.store-gallery-empty p{font-size:12px;line-height:1.5;max-width:280px}
+.store-media-controls{display:flex;align-items:center;gap:5px;padding:8px 6px;background:#182a37}
+.store-media-controls>button{background:#324b5e;color:#bed4df;border:0;height:63px;width:27px;display:grid;place-items:center;flex:none}
+.store-media-controls>button:hover{background:#456a7e}
+.store-media-thumbs{display:flex;overflow-x:auto;gap:5px;flex:1;scrollbar-width:thin;scrollbar-color:#4e7280 #142330}
+.store-thumb{width:108px;height:62px;flex:none;position:relative;background:#1f3644;padding:0;border:3px solid transparent;overflow:hidden}
+.store-thumb-current{border-color:#70d8d3}
+.store-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.store-thumb-play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;place-items:center;background:#0a1b25c9;border-radius:50%;padding:7px;color:#fff}
+.store-gallery-caption{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;color:#97b5c1;font-size:11px}
+.store-gallery-caption>span:first-child{display:flex;align-items:center;gap:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.store-about,.store-requirements{margin-top:26px}
+.store-short-description{color:#d1dee3;font-size:13px;line-height:1.75;max-width:800px}
+.store-long-description{margin-top:15px;background:#192d3a;padding:18px;color:#aebfca}
+.store-long-description p{white-space:pre-line;font-size:12px;line-height:1.75;overflow-wrap:anywhere}
+.store-text-toggle{color:#80d9d5;background:#2c4553;border:0;padding:8px 12px;margin-top:12px;font-size:11px}
+.store-tags,.store-side-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:16px}
+.store-tags span,.store-side-tags span{background:#284b5c;color:#9fd1da;padding:7px 9px;font-size:11px}
+.store-info{min-width:0}
+.store-product-card{background:linear-gradient(180deg,#223847,#1b2b38);padding:14px;border:1px solid #35505f}
+.store-product-banner{width:100%;height:auto;max-height:200px;object-fit:contain;background:#101b24;display:block}
+.store-product-placeholder{height:155px;background:#294352}
+.store-product-placeholder-inner{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;padding:20px;text-align:center;color:#a2d6d7;font-weight:700}
+.store-product-description{color:#bbced6;font-size:12px;line-height:1.7;padding-top:14px}
+.store-tag-label{display:flex;align-items:center;gap:7px;margin-top:18px;font-size:11px;color:#9eb7c4;font-weight:700}
+.store-side-tags{margin-top:9px}
+.store-side-tags span{font-size:10px;padding:5px 7px}
+.store-product-fields{margin-top:18px;border-top:1px solid #36505b;padding-top:8px}
+.store-field{display:flex;justify-content:space-between;gap:15px;padding:9px 0;border-bottom:1px solid #2d4755;font-size:11px}
+.store-field span{color:#88a3b2;flex-shrink:0}
+.store-field strong{text-align:right;font-weight:600;overflow-wrap:anywhere}
+.store-side-panel{background:#1b2e3c;padding:17px;margin-top:13px;border:1px solid #334956}
+.store-side-panel h4{display:flex;align-items:center;gap:7px;color:#bed0d8;font-size:12px;letter-spacing:.05em;text-transform:uppercase;margin:0 0 14px}
+.store-side-panel ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
+.store-side-panel li{color:#adcbd2;font-size:11px;padding-left:13px;border-left:3px solid #417e8d}
+.store-links-panel a,.store-links-panel button{display:flex;align-items:center;gap:9px;width:100%;padding:10px;color:#8ed9de;background:transparent;border:0;border-bottom:1px solid #35505f;font-size:11px;text-decoration:none;text-align:left}
+.store-links-panel a:hover,.store-links-panel button:hover{background:#284354}
+.store-requirement-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}
+.store-requirement-columns>div{background:#192a36;padding:16px;min-width:0}
+.store-requirement-columns h4{color:#b6cad5;text-transform:uppercase;font-size:11px;margin-bottom:12px}
+.store-requirement-columns p{font-size:11px;white-space:pre-line;color:#a6bac8;line-height:1.7;overflow-wrap:anywhere}
+.store-source-note{font-size:10px;line-height:1.5;margin-top:30px;color:#7695a5}
+@media(max-width:1100px){.store-layout{grid-template-columns:minmax(0,1fr)}.store-info{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}.store-product-card{grid-row:span 2}.store-side-panel{margin-top:0}}
+@media(max-width:850px){.store-info{display:block}.store-side-panel{margin-top:12px}.store-requirement-columns{grid-template-columns:1fr}.store-layout{padding:14px}}
