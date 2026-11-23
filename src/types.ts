@@ -7,6 +7,13 @@ export type SteamMetadata = {
   backgroundImage?: string;
   description?: string;
   detailedDescription?: string;
+  aboutTheGame?: string;
+  supportedLanguages?: string;
+  controllerSupport?: string;
+  contentNotice?: string;
+  legalNotice?: string;
+  supportedPlatforms?: string[];
+  requiredAge?: number;
   features?: string[];
   website?: string;
   minimumRequirements?: string;

@@ -104,7 +104,7 @@ function App() {
         ...g,
         title: metadata.name || g.title,
         description: metadata.description || g.description,
-        steamMetadata: metadata,
+        steamMetadata: { ...metadata, fetchedAt: new Date().toISOString() },
       }) : g);
       if (!silent) setStatus('Steam artwork and game details updated.');
     } catch (err) {
@@ -119,7 +119,11 @@ function App() {
     readLibrary().then(data => {
       libRef.current = data; setLibrary(data); setSelected(data.games[0]?.id ?? null);
       for (const game of data.games) {
-        if (game.steamAppId && !game.steamMetadata) void refresh(game.id, game.steamAppId, true);
+        // Refresh older metadata once after upgrading so existing games gain inline videos,
+        // supported languages and richer details without having to be re-added.
+        if (game.steamAppId && (!game.steamMetadata || !('supportedPlatforms' in game.steamMetadata))) {
+          void refresh(game.id, game.steamAppId, true);
+        }
       }
     }).catch(err => setStatus(String(err))).finally(() => setReady(true));
   }, [refresh]);

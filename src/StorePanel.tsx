@@ -1,173 +1,178 @@
 import { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, ExternalLink, Film, Gamepad2, Image as ImageIcon, Info, Monitor, Play, RefreshCcw, Sparkles, Tag } from 'lucide-react';
+import {
+  ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Film, Gamepad2,
+  Globe2, Image as ImageIcon, Info, Monitor, Play, RefreshCcw, Shield, Sparkles, Tag
+} from 'lucide-react';
 import type { Game, SteamMetadata } from './types';
+import { descriptionVideos, editorialContent, plainText, SteamRichDescription, supportedLanguages } from './steamContent';
 
-type MediaItem = { type: 'video' | 'image'; src: string; name: string; thumbnail?: string };
-type ExpandedMedia = { type: 'video' | 'image'; src: string; name: string };
-
-function steamText(html?: string) {
-  if (!html) return '';
-  // Steam descriptions may contain HTML. Display readable plain text, not untrusted HTML.
-  const spaced = html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(?:p|div|h[1-6]|li|ul|ol)>/gi, '\n\n')
-    .replace(/<li(?:\s[^>]*)?>/gi, '• ');
-  const doc = new DOMParser().parseFromString(spaced, 'text/html');
-  return (doc.body.textContent || '')
-    .replace(/\u00a0/g, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n[ \t]+/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
+type ExpandedMedia = { type:'video'|'image'; src:string; name:string };
+type MediaItem = ExpandedMedia & { thumbnail?:string };
 
 function MediaGallery({ game, metadata, onExpand }: {
-  game: Game;
-  metadata?: SteamMetadata;
-  onExpand: (media: ExpandedMedia) => void;
+  game:Game; metadata?:SteamMetadata; onExpand:(media:ExpandedMedia)=>void;
 }) {
   const media = useMemo(() => {
-    const items: MediaItem[] = [];
-    for (const trailer of metadata?.trailers || []) {
-      items.push({ type: 'video', src: trailer.url, thumbnail: trailer.thumbnail, name: trailer.name });
+    const items:MediaItem[] = [];
+    const used = new Set<string>();
+    for (const trailer of [...(metadata?.trailers || []), ...descriptionVideos(metadata)]) {
+      if (!trailer.url || used.has(trailer.url)) continue;
+      used.add(trailer.url);
+      items.push({ type:'video', src:trailer.url, name:trailer.name, thumbnail:trailer.thumbnail });
     }
     for (const [index, src] of (metadata?.screenshots || []).entries()) {
-      items.push({ type: 'image', src, thumbnail: src, name: game.title + ' — screenshot ' + (index + 1) });
+      if (used.has(src)) continue;
+      used.add(src);
+      items.push({ type:'image', src, thumbnail:src, name:game.title+' — Screenshot '+(index+1) });
     }
     if (!items.length) {
-      const fallback = metadata?.headerImage || game.artworkUrl;
-      if (fallback) items.push({ type: 'image', src: fallback, name: game.title });
+      const artwork = metadata?.headerImage || game.artworkUrl;
+      if (artwork) items.push({type:'image',src:artwork,name:game.title,thumbnail:artwork});
     }
     return items;
-  }, [game.id, game.title, game.artworkUrl, metadata]);
+  }, [game.title,game.artworkUrl,metadata]);
+  const [index,setIndex] = useState(0);
+  const [videoError,setVideoError] = useState(false);
+  const current = media[Math.min(index,media.length-1)];
+  const choose = (next:number) => { setIndex(Math.max(0,Math.min(media.length-1,next))); setVideoError(false); };
 
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const current = media[Math.min(currentIndex, media.length - 1)];
-  const pick = (index: number) => setCurrentIndex(Math.max(0, Math.min(media.length - 1, index)));
-
-  if (!current) {
-    return <div className="store-gallery-empty">
-      <ImageIcon size={32}/>
-      <strong>Media will appear here</strong>
-      <p>Link a Steam App ID to load trailers and screenshots for this game.</p>
-    </div>;
-  }
-
+  if (!current) return <div className="store-gallery-empty">
+    <ImageIcon size={32}/><strong>Media will appear here</strong>
+    <p>Add a Steam App ID and refresh to load videos and screenshots.</p>
+  </div>;
   return <div className="store-gallery">
     <div className="store-stage">
-      {current.type === 'video'
-        ? <video key={current.src} controls playsInline preload="metadata" poster={current.thumbnail} src={current.src} aria-label={current.name}/>
-        : <button className="store-stage-image" onClick={() => onExpand(current)} title="View full-size screenshot">
-            <img key={current.src} src={current.src} alt={current.name}/>
-            <span className="store-image-expand"><ImageIcon size={15}/> View image</span>
-          </button>}
+      {current.type==='video' ? <>
+        <video key={current.src} src={current.src} poster={current.thumbnail} controls playsInline preload="metadata" onError={()=>setVideoError(true)}/>
+        {videoError && <div className="store-video-error">Steam's video stream is currently unavailable. You can view this game's media on its Steam page.</div>}
+      </> : <button className="store-stage-image" onClick={()=>onExpand(current)} title="Open screenshot">
+        <img key={current.src} src={current.src} alt={current.name}/>
+        <span className="store-image-expand"><ImageIcon size={15}/> View image</span>
+      </button>}
     </div>
     <div className="store-media-controls">
-      <button onClick={() => pick((currentIndex - 1 + media.length) % media.length)} disabled={media.length < 2} aria-label="Previous image or trailer">
-        <ChevronLeft size={19}/>
-      </button>
-      <div className="store-media-thumbs" aria-label="Game trailers and screenshots">
-        {media.map((item, index) => <button
-          key={item.src + index}
-          className={'store-thumb ' + (index === currentIndex ? 'store-thumb-current' : '')}
-          onClick={() => pick(index)}
-          title={item.name}
-          aria-label={item.name}
-          aria-pressed={index === currentIndex}
-        >
-          <img loading="lazy" src={item.thumbnail || item.src} alt=""/>
-          {item.type === 'video' && <span className="store-thumb-play"><Play size={13} fill="currentColor"/></span>}
+      <button aria-label="Previous media" disabled={media.length<2} onClick={()=>choose((index-1+media.length)%media.length)}><ChevronLeft size={19}/></button>
+      <div className="store-media-thumbs">
+        {media.map((item,i)=><button key={item.src+i} className={'store-thumb '+(i===index?'store-thumb-current':'')}
+          title={item.name} aria-label={item.name} aria-pressed={i===index} onClick={()=>choose(i)}>
+          <img loading="lazy" src={item.thumbnail || (item.type==='image'?item.src:metadata?.headerImage)} alt=""/>
+          {item.type==='video'&&<span className="store-thumb-play"><Play size={13} fill="currentColor"/></span>}
         </button>)}
       </div>
-      <button onClick={() => pick((currentIndex + 1) % media.length)} disabled={media.length < 2} aria-label="Next image or trailer">
-        <ChevronRight size={19}/>
-      </button>
+      <button aria-label="Next media" disabled={media.length<2} onClick={()=>choose((index+1)%media.length)}><ChevronRight size={19}/></button>
     </div>
     <div className="store-gallery-caption">
-      <span>{current.type === 'video' ? <Film size={13}/> : <ImageIcon size={13}/>} {current.name}</span>
-      <span>{currentIndex + 1} / {media.length}</span>
+      <span>{current.type==='video'?<Film size={13}/>:<ImageIcon size={13}/>} {current.name}</span>
+      <span>{index+1} / {media.length}</span>
     </div>
   </div>;
 }
 
-function Field({ label, value }: { label: string; value?: string | number }) {
-  return <div className="store-field"><span>{label}</span><strong>{value || '—'}</strong></div>;
+function Field({label,value}:{label:string;value?:string|number}) {
+  return <div className="store-field"><span>{label}</span><strong>{value||'—'}</strong></div>;
 }
-
-export default function StorePanel({ game, metadata, loading, onRefresh, onExpand }: {
-  game: Game;
-  metadata?: SteamMetadata;
-  loading: boolean;
-  onRefresh: () => void;
-  onExpand: (media: ExpandedMedia) => void;
+function Heading({children}:{children:React.ReactNode}) {
+  return <div className="section-heading store-section-title">{children}</div>;
+}
+export default function StorePanel({game,metadata,loading,onRefresh,onExpand}:{
+  game:Game;metadata?:SteamMetadata;loading:boolean;onRefresh:()=>void;onExpand:(media:ExpandedMedia)=>void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const detailText = useMemo(() => steamText(metadata?.detailedDescription), [metadata?.detailedDescription]);
-  const minimum = useMemo(() => steamText(metadata?.minimumRequirements), [metadata?.minimumRequirements]);
-  const recommended = useMemo(() => steamText(metadata?.recommendedRequirements), [metadata?.recommendedRequirements]);
+  const [showLegal,setShowLegal]=useState(false);
+  const editorial = useMemo(()=>editorialContent(metadata),[metadata]);
+  const languages = useMemo(()=>supportedLanguages(metadata?.supportedLanguages),[metadata?.supportedLanguages]);
+  const requirements = useMemo(()=>({
+    minimum:plainText(metadata?.minimumRequirements),
+    recommended:plainText(metadata?.recommendedRequirements)
+  }),[metadata?.minimumRequirements,metadata?.recommendedRequirements]);
+  const about = metadata?.aboutTheGame || metadata?.detailedDescription;
   const summary = metadata?.description || game.description || 'Game information is not available yet.';
-  const longDescription = detailText && detailText !== summary ? detailText : '';
-  const displayDescription = expanded ? longDescription : longDescription.slice(0, 1100);
-  const requirementsExist = Boolean(minimum || recommended);
 
   return <div className="game-body store-layout">
     <section className="store-center">
-      <div id="drift-media" className="section-heading store-section-title"><Film size={17}/><h3>Media &amp; highlights</h3>
-        <span>{(metadata?.trailers?.length || 0) + (metadata?.screenshots?.length || 0)} items</span>
-      </div>
+      <Heading><Film size={17}/><h3>Videos &amp; screenshots</h3><span>
+        {(metadata?.trailers?.length||0)+descriptionVideos(metadata).length} videos · {metadata?.screenshots?.length||0} screenshots
+      </span></Heading>
       <MediaGallery game={game} metadata={metadata} onExpand={onExpand}/>
 
-      <section id="drift-about" className="store-about">
-        <div className="section-heading store-section-title"><Info size={17}/><h3>About this game</h3></div>
+      {editorial && <section className="store-editorial">
+        <Heading><Sparkles size={17}/><h3>Updates &amp; highlights</h3></Heading>
+        <SteamRichDescription html={editorial}/>
+      </section>}
+
+      <section className="store-about" id="drift-about">
+        <Heading><Info size={17}/><h3>About this game</h3></Heading>
         <p className="store-short-description">{summary}</p>
-        {longDescription && <div className="store-long-description">
-          <p>{displayDescription}{!expanded && longDescription.length > 1100 ? '…' : ''}</p>
-          {longDescription.length > 1100 && <button className="store-text-toggle" onClick={() => setExpanded(!expanded)}>
-            {expanded ? 'Show less' : 'Read more'}
-          </button>}
-        </div>}
-        {metadata?.genres?.length ? <div className="store-tags">{metadata.genres.map(genre => <span key={genre}>{genre}</span>)}</div> : null}
+        {about && <SteamRichDescription html={about}/>}
+        {metadata?.genres?.length ? <div className="store-tags">{metadata.genres.map(tag=><span key={tag}>{tag}</span>)}</div>:null}
       </section>
 
-      {requirementsExist && <section id="drift-requirements" className="store-requirements">
-        <div className="section-heading store-section-title"><Monitor size={17}/><h3>System requirements</h3></div>
+      {(requirements.minimum||requirements.recommended) && <section className="store-requirements">
+        <Heading><Monitor size={17}/><h3>System requirements</h3></Heading>
         <div className="store-requirement-columns">
-          {minimum && <div><h4>Minimum</h4><p>{minimum}</p></div>}
-          {recommended && <div><h4>Recommended</h4><p>{recommended}</p></div>}
+          {requirements.minimum && <div><h4>Minimum</h4><p>{requirements.minimum}</p></div>}
+          {requirements.recommended && <div><h4>Recommended</h4><p>{requirements.recommended}</p></div>}
         </div>
       </section>}
-      <div className="store-source-note">Media and game details are provided by Steam where available. Drift is a separate community game launcher.</div>
+
+      <div className="store-source-note">Game artwork, media, and descriptions are provided by Steam where available. Drift is an independent launcher.</div>
     </section>
 
     <aside className="store-info">
       <div className="store-product-card">
-        {metadata?.headerImage ? <img className="store-product-banner" src={metadata.headerImage} alt={game.title + ' cover artwork'}/> :
-          <div className="store-product-placeholder"><GameCoverText title={game.title}/></div>}
+        {metadata?.headerImage ? <img className="store-product-banner" src={metadata.headerImage} alt={game.title+' artwork'}/>:
+          <div className="store-product-placeholder"><div className="store-product-placeholder-inner"><Gamepad2 size={26}/>{game.title}</div></div>}
         <p className="store-product-description">{summary}</p>
-        {metadata?.genres?.length ? <div className="store-tag-label"><Tag size={13}/> Genres</div> : null}
-        {metadata?.genres?.length ? <div className="store-side-tags">{metadata.genres.map(tag => <span key={tag}>{tag}</span>)}</div> : null}
         <div className="store-product-fields">
           <Field label="Developer" value={metadata?.developer}/>
           <Field label="Publisher" value={metadata?.publisher}/>
-          <Field label="Released" value={metadata?.releaseDate}/>
+          <Field label="Release date" value={metadata?.releaseDate}/>
           <Field label="Steam App ID" value={game.steamAppId}/>
+          {metadata?.controllerSupport && <Field label="Controller" value={metadata.controllerSupport}/>}
+          {metadata?.supportedPlatforms?.length ? <Field label="Platforms" value={metadata.supportedPlatforms.join(', ')}/>:null}
         </div>
+        {metadata?.genres?.length ? <>
+          <div className="store-tag-label"><Tag size={13}/> Genres</div>
+          <div className="store-side-tags">{metadata.genres.map(genre=><span key={genre}>{genre}</span>)}</div>
+        </>:null}
       </div>
 
-      {(metadata?.features || []).length > 0 && <div className="store-side-panel">
-        <h4><Sparkles size={14}/> Game features</h4>
-        <ul>{metadata!.features!.slice(0,10).map(feature => <li key={feature}>{feature}</li>)}</ul>
+      {(metadata?.features||[]).length>0 && <div className="store-side-panel store-feature-panel">
+        <h4><Sparkles size={14}/> Features</h4>
+        <ul>{(metadata?.features||[]).map(feature=><li key={feature}>{feature}</li>)}</ul>
       </div>}
+
+      {languages.length>0 && <div className="store-side-panel">
+        <h4><Globe2 size={14}/> Supported languages</h4>
+        <div className="store-languages">
+          {languages.map(lang=><div key={lang}><span>{lang}</span><span className="language-check">✓</span></div>)}
+        </div>
+        <p className="store-minor-note">Language availability as listed by Steam. Audio and subtitle support may differ.</p>
+      </div>}
+
+      {metadata?.contentNotice && <div className="store-side-panel store-notice-panel">
+        <h4><Shield size={14}/> Content information</h4>
+        <p>{plainText(metadata.contentNotice)}</p>
+      </div>}
+
+      {metadata?.requiredAge ? <div className="store-side-panel store-notice-panel">
+        <h4><Shield size={14}/> Age information</h4><p>Steam required age: {metadata.requiredAge}+</p>
+      </div> : null}
+
+      {metadata?.legalNotice && <div className="store-side-panel">
+        <button className="store-disclosure" onClick={()=>setShowLegal(!showLegal)}>
+          <Shield size={14}/> Legal &amp; licensing <ChevronDown size={13}/>
+        </button>
+        {showLegal&&<p className="store-legal">{plainText(metadata.legalNotice)}</p>}
+      </div>}
+
       <div className="store-side-panel store-links-panel">
         <h4>Game resources</h4>
-        {game.steamAppId && <a href={'https://store.steampowered.com/app/' + game.steamAppId + '/'} target="_blank" rel="noreferrer">View on Steam <ExternalLink size={14}/></a>}
+        {game.steamAppId && <a href={'https://store.steampowered.com/app/'+game.steamAppId+'/'} target="_blank" rel="noreferrer">View on Steam <ExternalLink size={14}/></a>}
+        {game.steamAppId && <a href={'https://steamcommunity.com/app/'+game.steamAppId} target="_blank" rel="noreferrer">Community hub <ExternalLink size={14}/></a>}
+        {game.steamAppId && <a href={'https://store.steampowered.com/news/app/'+game.steamAppId} target="_blank" rel="noreferrer">Official game news <ExternalLink size={14}/></a>}
         {metadata?.website && <a href={metadata.website} target="_blank" rel="noreferrer">Official website <ExternalLink size={14}/></a>}
-        {game.steamAppId && <button disabled={loading} onClick={onRefresh}><RefreshCcw size={14} className={loading?'spin':''}/> Refresh game details</button>}
+        {game.steamAppId && <button disabled={loading} onClick={onRefresh}><RefreshCcw size={14} className={loading?'spin':''}/> Refresh Steam metadata</button>}
       </div>
     </aside>
   </div>;
-}
-
-function GameCoverText({ title }: { title:string }) {
-  return <div className="store-product-placeholder-inner"><Gamepad2 size={26}/><span>{title}</span></div>;
 }

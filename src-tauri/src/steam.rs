@@ -20,6 +20,13 @@ pub struct SteamMetadata {
     background_image: Option<String>,
     description: Option<String>,
     detailed_description: Option<String>,
+    about_the_game: Option<String>,
+    supported_languages: Option<String>,
+    controller_support: Option<String>,
+    content_notice: Option<String>,
+    legal_notice: Option<String>,
+    supported_platforms: Vec<String>,
+    required_age: Option<u32>,
     #[serde(default)]
     features: Vec<String>,
     website: Option<String>,
@@ -77,6 +84,20 @@ pub async fn fetch_steam_metadata(app_id: u32) -> Result<SteamMetadata, String> 
         .or_else(|| Some(asset(app_id, "header.jpg")));
     let description = get_string(data, "short_description");
     let detailed_description = get_string(data, "detailed_description");
+    let about_the_game = get_string(data, "about_the_game");
+    let supported_languages = get_string(data, "supported_languages");
+    let controller_support = get_string(data, "controller_support");
+    let content_notice = data.get("content_descriptors")
+        .and_then(|v| get_string(v, "notes"));
+    let legal_notice = get_string(data, "legal_notice");
+    let supported_platforms = data.get("platforms").map(|p| {
+        [("windows", "Windows"), ("mac", "macOS"), ("linux", "Linux")]
+            .iter()
+            .filter_map(|(key, label)| if p.get(*key).and_then(Value::as_bool) == Some(true) { Some(label.to_string()) } else { None })
+            .collect()
+    }).unwrap_or_default();
+    let required_age = data.get("required_age").and_then(Value::as_u64)
+        .and_then(|age| u32::try_from(age).ok()).filter(|age| *age > 0);
     let website = data.get("website").and_then(Value::as_str).and_then(https_url);
     let minimum_requirements = data.get("pc_requirements").and_then(|v| get_string(v, "minimum"));
     let recommended_requirements = data.get("pc_requirements").and_then(|v| get_string(v, "recommended"));
@@ -114,6 +135,13 @@ pub async fn fetch_steam_metadata(app_id: u32) -> Result<SteamMetadata, String> 
             .and_then(Value::as_str).and_then(https_url),
         description,
         detailed_description,
+        about_the_game,
+        supported_languages,
+        controller_support,
+        content_notice,
+        legal_notice,
+        supported_platforms,
+        required_age,
         features,
         website,
         minimum_requirements,
